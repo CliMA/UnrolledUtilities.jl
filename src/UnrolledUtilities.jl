@@ -1,45 +1,3 @@
-"""
-    UnrolledUtilities
-
-A collection of generated functions in which all loops are unrolled and inlined.
-
-The functions exported by this module are
-- `unrolled_any(f, itr)`: similar to `any`
-- `unrolled_all(f, itr)`: similar to `all`
-- `unrolled_foreach(f, itrs...)`: similar to `foreach`
-- `unrolled_map(f, itrs...)`: similar to `map`
-- `unrolled_reduce(op, itr; [init])`: similar to `reduce`
-- `unrolled_mapreduce(f, op, itrs...; [init])`: similar to `mapreduce`
-- `unrolled_zip(itrs...)`: similar to `zip`
-- `unrolled_in(item, itr)`: similar to `in`
-- `unrolled_unique(itr)`: similar to `unique`
-- `unrolled_filter(f, itr)`: similar to `filter`
-- `unrolled_split(f, itr)`: similar to `(filter(f, itr), filter(!f, itr))`, but
-  without duplicate calls to `f`
-- `unrolled_flatten(itr)`: similar to `Iterators.flatten`
-- `unrolled_flatmap(f, itrs...)`: similar to `Iterators.flatmap`
-- `unrolled_product(itrs...)`: similar to `Iterators.product`
-- `unrolled_take(itr, ::Val{N})`: similar to `Iterators.take`, but with the
-  second argument wrapped in a `Val`
-- `unrolled_drop(itr, ::Val{N})`: similar to `Iterators.drop`, but with the
-  second argument wrapped in a `Val`
-
-These functions are guaranteed to be type-stable whenever they are given
-iterators with inferrable lengths and element types, including when
-- the iterators have nonuniform element types (with the exception of `map`, all
-  of the corresponding functions from `Base` encounter type-instabilities and
-  allocations when this is the case)
-- the iterators have many elements (e.g., more than 32, which is the threshold
-  at which `map` becomes type-unstable for `Tuple`s)
-- `f` and/or `op` recursively call the function to which they is passed, with an
-  arbitrarily large recursion depth (e.g., if `f` calls `map(f, itrs)`, it will
-  be type-unstable when the recursion depth exceeds 3, but this will not be the
-  case with `unrolled_map`)
-
-Moreover, these functions are very likely to be optimized out through constant
-propagation when the iterators have singleton element types (and when the result
-of calling `f` and/or `op` on these elements is inferrable).
-"""
 module UnrolledUtilities
 
 export unrolled_any,
@@ -73,7 +31,7 @@ function zipped_f_exprs(itr_types)
     return (:(f($((:(itrs[$l][$n]) for l in 1:L)...))) for n in 1:N)
 end
 @inline @generated unrolled_foreach(f, itrs...) =
-    Expr(:block, zipped_f_exprs(itrs)...)
+    Expr(:block, zipped_f_exprs(itrs)..., nothing)
 @inline @generated unrolled_map(f, itrs...) =
     Expr(:tuple, zipped_f_exprs(itrs)...)
 
@@ -89,8 +47,8 @@ struct NoInit end
 @inline unrolled_reduce(op, itr; init = NoInit()) =
     unrolled_reduce_without_init(op, init isa NoInit ? itr : (init, itr...))
 
-@inline unrolled_mapreduce(f, op, itrs...; init_kwarg...) =
-    unrolled_reduce(op, unrolled_map(f, itrs...); init_kwarg...)
+@inline unrolled_mapreduce(f, op, itrs...; init = NoInit()) =
+    unrolled_reduce(op, unrolled_map(f, itrs...); init)
 
 @inline unrolled_zip(itrs...) = unrolled_map(tuple, itrs...)
 
