@@ -181,14 +181,14 @@ macro test_unrolled(args_expr, unrolled_expr, reference_expr, contents_info_str)
         arg_definitions_str = join(arg_definition_strs, '\n')
         unrolled_command_str = """
             using UnrolledUtilities
-            unrolled_func($arg_names_str) = $($unrolled_expr_str)
+            unrolled_func($arg_names_str) = $($(string(unrolled_expr)))
             $arg_definitions_str
             stats1 = @timed unrolled_func($arg_names_str)
             stats2 = @timed unrolled_func($arg_names_str)
             print(stats1.time - stats2.time, ',', stats1.bytes - stats2.bytes)
             """
         reference_command_str = """
-            reference_func($arg_names_str) = $($reference_expr_str)
+            reference_func($arg_names_str) = $($(string(reference_expr)))
             $arg_definitions_str
             stats1 = @timed reference_func($arg_names_str)
             stats2 = @timed reference_func($arg_names_str)
@@ -344,6 +344,8 @@ for n in (1, 8, 32, 33, 128), identical in (n == 1 ? (true,) : (true, false))
 
             @test_unrolled (itr,) unrolled_zip(itr) Tuple(zip(itr)) str
 
+            @test_unrolled (itr,) unrolled_enumerate(itr) Tuple(enumerate(itr)) str
+
             @test_unrolled (itr,) unrolled_in(nothing, itr) (nothing in itr) str
             @test_unrolled (itr,) unrolled_in(itr[1], itr) (itr[1] in itr) str
             @test_unrolled (itr,) unrolled_in(itr[end], itr) (itr[end] in itr) str
@@ -385,6 +387,17 @@ for n in (1, 8, 32, 33, 128), identical in (n == 1 ? (true,) : (true, false))
                 (itr,),
                 unrolled_product(itr),
                 Tuple(Iterators.product(itr)),
+                str,
+            )
+
+            @test_unrolled(
+                (itr,),
+                unrolled_applyat(
+                    x -> @assert(length(x) <= 7),
+                    rand(1:length(itr)),
+                    itr,
+                ),
+                @assert(length(itr[rand(1:length(itr))]) <= 7),
                 str,
             )
 
@@ -436,6 +449,33 @@ for n in (1, 8, 32, 33, 128), identical in (n == 1 ? (true,) : (true, false))
                 itr3,
             ),
             foreach((x2, x3) -> @assert(x2 == map(Val, x3)), itr2, itr3),
+            str23,
+        )
+
+        @test_unrolled(
+            (itr1, itr2),
+            unrolled_applyat(
+                (x1, x2) -> @assert(length(x1) < length(x2)),
+                rand(1:length(itr1)),
+                itr1,
+                itr2,
+            ),
+            let n = rand(1:length(itr1))
+                @assert(length(itr1[n]) < length(itr2[n]))
+            end,
+            str12,
+        )
+        @test_unrolled(
+            (itr2, itr3),
+            unrolled_applyat(
+                (x2, x3) -> @assert(x2 == unrolled_map(Val, x3)),
+                rand(1:length(itr2)),
+                itr2,
+                itr3,
+            ),
+            let n = rand(1:length(itr2))
+                @assert(itr2[n] == map(Val, itr3[n]))
+            end,
             str23,
         )
 
