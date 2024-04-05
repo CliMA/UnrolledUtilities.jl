@@ -7,6 +7,7 @@ export unrolled_any,
     unrolled_reduce,
     unrolled_mapreduce,
     unrolled_zip,
+    unrolled_enumerate,
     unrolled_in,
     unrolled_unique,
     unrolled_filter,
@@ -14,10 +15,11 @@ export unrolled_any,
     unrolled_flatten,
     unrolled_flatmap,
     unrolled_product,
+    unrolled_applyat,
     unrolled_take,
     unrolled_drop
 
-inferred_length(itr_type::Type{<:Tuple}) = length(itr_type.types)
+inferred_length(::Type{<:NTuple{N, Any}}) where {N} = N
 # We could also add support for statically-sized iterators that are not Tuples.
 
 f_exprs(itr_type) = (:(f(itr[$n])) for n in 1:inferred_length(itr_type))
@@ -51,6 +53,9 @@ struct NoInit end
     unrolled_reduce(op, unrolled_map(f, itrs...); init)
 
 @inline unrolled_zip(itrs...) = unrolled_map(tuple, itrs...)
+
+@inline unrolled_enumerate(itrs...) =
+    unrolled_zip(ntuple(identity, Val(length(itrs[1]))), itrs...)
 
 @inline unrolled_in(item, itr) = unrolled_any(Base.Fix1(===, item), itr)
 # Using === instead of == or isequal improves type stability for singletons.
@@ -89,6 +94,11 @@ struct NoInit end
         end
     end
 
+@inline unrolled_applyat(f, n, itrs...) = unrolled_foreach(
+    (i, items...) -> i == n && f(items...),
+    unrolled_enumerate(itrs...),
+)
+
 @inline unrolled_take(itr, ::Val{N}) where {N} = ntuple(i -> itr[i], Val(N))
 @inline unrolled_drop(itr, ::Val{N}) where {N} =
     ntuple(i -> itr[N + i], Val(length(itr) - N))
@@ -107,6 +117,7 @@ struct NoInit end
         unrolled_filter,
         unrolled_split,
         unrolled_flatmap,
+        unrolled_applyat,
     )
         for method in methods(func)
             method.recursion_relation = (_...) -> true

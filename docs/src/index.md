@@ -8,6 +8,8 @@ A collection of generated functions in which all loops are unrolled and inlined:
 - `unrolled_reduce(op, itr; [init])`: similar to `reduce`
 - `unrolled_mapreduce(f, op, itrs...; [init])`: similar to `mapreduce`
 - `unrolled_zip(itrs...)`: similar to `zip`
+- `unrolled_enumerate(itrs...)`: similar to `enumerate`, but with the ability to
+  handle multiple iterators
 - `unrolled_in(item, itr)`: similar to `in`
 - `unrolled_unique(itr)`: similar to `unique`
 - `unrolled_filter(f, itr)`: similar to `filter`
@@ -16,10 +18,11 @@ A collection of generated functions in which all loops are unrolled and inlined:
 - `unrolled_flatten(itr)`: similar to `Iterators.flatten`
 - `unrolled_flatmap(f, itrs...)`: similar to `Iterators.flatmap`
 - `unrolled_product(itrs...)`: similar to `Iterators.product`
-- `unrolled_take(itr, ::Val{N})`: similar to `Iterators.take` or `itr[1:N]`, but
-  with `N` wrapped in a `Val`
-- `unrolled_drop(itr, ::Val{N})`: similar to `Iterators.drop` or
-  `itr[(N + 1):end]`, but with `N` wrapped in a `Val`
+- `unrolled_applyat(f, n, itrs...)`: similar to `f(map(itr -> itr[n], itrs)...)`
+- `unrolled_take(itr, ::Val{N})`: similar to `itr[1:N]` (and to
+  `Iterators.take`), but with `N` wrapped in a `Val`
+- `unrolled_drop(itr, ::Val{N})`: similar to `itr[(N + 1):end]` (and to
+  `Iterators.drop`), but with `N` wrapped in a `Val`
 
 These functions are guaranteed to be type-stable whenever they are given
 iterators with inferrable lengths and element types, including when
