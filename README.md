@@ -1,4 +1,11 @@
-# UnrolledUtilities.jl
+<h1 align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo-white.png">
+  <source media="(prefers-color-scheme: light)" srcset="logo.png">
+  <img alt="Shows the logo of UnrolledUtilities.jl" src="logo.png" width="480px">
+</picture>
+</h1>
+
 A Julia package that provides unrolled analogues to functions from `Base` and `Base.Iterators`
 
 |||
