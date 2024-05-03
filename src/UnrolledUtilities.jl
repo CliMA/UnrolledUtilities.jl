@@ -11,6 +11,7 @@ export unrolled_any,
     unrolled_in,
     unrolled_unique,
     unrolled_filter,
+    unrolled_findonly,
     unrolled_split,
     unrolled_flatten,
     unrolled_flatmap,
@@ -104,6 +105,12 @@ struct NoInit end
     ntuple(i -> itr[N + i], Val(length(itr) - N))
 # When its second argument is a Val, ntuple is unrolled via Base.@ntuple.
 
+function unrolled_findonly(f::F, values) where {F}
+    filtered_values = unrolled_filter(f, values)
+    return length(filtered_values) == 1 ? filtered_values[1] :
+           error("unrolled_findonly requires that exactly 1 value makes f true")
+end
+
 @static if hasfield(Method, :recursion_relation)
     # Remove recursion limits for functions whose arguments are also functions.
     for func in (
@@ -115,6 +122,7 @@ struct NoInit end
         unrolled_reduce,
         unrolled_mapreduce,
         unrolled_filter,
+        unrolled_findonly,
         unrolled_split,
         unrolled_flatmap,
         unrolled_applyat,
