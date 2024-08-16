@@ -1,0 +1,56 @@
+# Remove recursion limits from functions that call themselves, and also from all
+# functions whose arguments can be arbitrary functions (including themselves).
+@static if hasfield(Method, :recursion_relation)
+    for func in (
+        generic_getindex,
+        output_type_for_promotion,
+        _rec_unrolled_any,
+        _rec_unrolled_all,
+        _rec_unrolled_foreach,
+        _rec_unrolled_map,
+        _rec_unrolled_applyat,
+        _rec_unrolled_reduce,
+        _rec_unrolled_accumulate,
+        rec_unrolled_any,
+        rec_unrolled_all,
+        rec_unrolled_foreach,
+        rec_unrolled_map,
+        rec_unrolled_applyat,
+        rec_unrolled_reduce,
+        rec_unrolled_accumulate,
+        _gen_unrolled_any,
+        _gen_unrolled_all,
+        _gen_unrolled_foreach,
+        _gen_unrolled_map,
+        _gen_unrolled_applyat,
+        _gen_unrolled_reduce,
+        _gen_unrolled_accumulate,
+        gen_unrolled_any,
+        gen_unrolled_all,
+        gen_unrolled_foreach,
+        gen_unrolled_map,
+        gen_unrolled_applyat,
+        gen_unrolled_reduce,
+        gen_unrolled_accumulate,
+        val_unrolled_reduce,
+        unrolled_any,
+        unrolled_all,
+        unrolled_foreach,
+        unrolled_map_into_tuple,
+        unrolled_map_into,
+        unrolled_map,
+        unrolled_applyat,
+        unrolled_reduce,
+        unrolled_mapreduce,
+        unrolled_accumulate_into_tuple,
+        unrolled_accumulate_into,
+        unrolled_accumulate,
+        unrolled_filter,
+        unrolled_split,
+        unrolled_flatmap,
+    )
+        for method in methods(func)
+            method.recursion_relation = Returns(true)
+        end
+    end
+end

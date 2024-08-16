@@ -16,12 +16,18 @@ jobs:
       matrix:
         version:
           - '1.10'
+          - '~1.11.0-0'
         os:
           - ubuntu-latest
           - macOS-latest
           - windows-latest
         arch:
           - x64
+        exclude:
+          - version: '~1.11.0-0'
+            os: macOS-latest # JET crashes on one unit test and hangs on another
+          - version: '~1.11.0-0'
+            os: windows-latest # JET crashes on 3 unit tests
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v1
