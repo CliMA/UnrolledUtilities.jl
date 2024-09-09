@@ -1,7 +1,7 @@
 name = "UnrolledUtilities"
 uuid = "0fe1646c-419e-43be-ac14-22321958931b"
 authors = ["CliMA Contributors <clima-software@caltech.edu>"]
-version = "0.1.3"
+version = "0.1.4"
 
 [compat]
 julia = "1.10"

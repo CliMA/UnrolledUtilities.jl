@@ -53,8 +53,19 @@ end
 @inline gen_unrolled_accumulate(op, itr, init, transform) =
     _gen_unrolled_accumulate(Val(length(itr)), op, itr, init, transform)
 
-# NOTE: The following is experimental and will likely be removed in the future.
-@inline @generated val_unrolled_reduce(op, ::Val{N}, init) where {N} =
-    foldl(init <: NoInit ? (1:N) : (:init, 1:N...)) do prev_op_expr, item_expr
+# TODO: The following is experimental and will likely be removed in the future.
+# For some reason, combining these two methods into one (or combining them with
+# the method for gen_unrolled_reduce defined above) causes compilation of the
+# non-orographic gravity wave parametrization test in ClimaAtmos to hang. Even
+# more bizarrely, using the assignment form of the first method definition below
+# (as opposed to the function syntax used here) causes compilation to hang as
+# well. This behavior has not yet been replicated in a minimal working example.
+@inline @generated function val_unrolled_reduce(op, ::Val{N}, init) where {N}
+    return foldl((:init, 1:N...)) do prev_op_expr, item_expr
         :(op($prev_op_expr, $item_expr))
-    end # Use foldl instead of reduce to guarantee left associativity.
+    end
+end
+@inline @generated val_unrolled_reduce(op, ::Val{N}, ::NoInit) where {N} =
+    foldl(1:N) do prev_op_expr, item_expr
+        :(op($prev_op_expr, $item_expr))
+    end

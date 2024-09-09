@@ -22,11 +22,11 @@ export unrolled_any,
     StaticOneTo,
     StaticBitVector
 
+struct NoInit end # Analogue of Base._InitialValue for reduction/accumulation.
+
 include("unrollable_iterator_interface.jl")
 include("recursively_unrolled_functions.jl")
 include("generatively_unrolled_functions.jl")
-
-struct NoInit end # Analogue of Base._InitialValue for reduction/accumulation.
 
 @inline unrolled_any(f, itr) =
     (rec_unroll(itr) ? rec_unrolled_any : gen_unrolled_any)(f, itr)
@@ -65,7 +65,7 @@ struct NoInit end # Analogue of Base._InitialValue for reduction/accumulation.
 # TODO: Figure out why unrolled_reduce(op, Val(N), init) compiles faster than
 # unrolled_reduce(op, StaticOneTo(N), init) for the non-orographic gravity wave
 # parametrization test in ClimaAtmos, to the point where the StaticOneTo version
-# appears to completely hang while the Val version compiles in under a second.
+# completely hangs while the Val version compiles in only a few seconds.
 @inline unrolled_reduce(op, val_N::Val, init) =
     val_unrolled_reduce(op, val_N, init)
 @inline unrolled_reduce(op, val_N::Val; init = NoInit()) =
