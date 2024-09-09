@@ -1,12 +1,12 @@
 <h1 align="center">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="logo-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="logo.png">
-  <img alt="Shows the logo of UnrolledUtilities.jl" src="logo.png" width="480px">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/src/assets/logo-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/src/assets/logo.png">
+  <img alt="Shows the logo of UnrolledUtilities.jl" src="docs/src/assets/logo.png" width="480px">
 </picture>
 </h1>
 
-A Julia package that provides unrolled analogues to functions from `Base` and `Base.Iterators`
+A toolkit for optimizing Julia code that uses statically sized iterators.
 
 |||
 |---------------------:|:----------------------------------------------|
