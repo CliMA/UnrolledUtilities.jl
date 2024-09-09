@@ -1,75 +1,87 @@
+```@setup inference_test
+using UnrolledUtilities
+```
+
 #  UnrolledUtilities.jl
 
-A collection of generated functions in which all loops are unrolled and inlined:
-- `unrolled_any(f, itr)`: similar to `any`
-- `unrolled_all(f, itr)`: similar to `all`
-- `unrolled_foreach(f, itrs...)`: similar to `foreach`
-- `unrolled_map(f, itrs...)`: similar to `map`
-- `unrolled_reduce(op, itr; [init])`: similar to `reduce`
-- `unrolled_mapreduce(f, op, itrs...; [init])`: similar to `mapreduce`
-- `unrolled_zip(itrs...)`: similar to `zip`
-- `unrolled_enumerate(itrs...)`: similar to `enumerate`, but with the ability to
-  handle multiple iterators
-- `unrolled_in(item, itr)`: similar to `in`
-- `unrolled_unique(itr)`: similar to `unique`
-- `unrolled_filter(f, itr)`: similar to `filter`
-- `unrolled_split(f, itr)`: similar to `(filter(f, itr), filter(!f, itr))`, but
+A toolkit for low-level optimization of Julia code in which iterator sizes are
+known during compilation.
+
+This package can be used with all *statically sized* iterators (`Tuple`s,
+`NamedTuple`s, [`StaticArray`s](https://github.com/JuliaArrays/StaticArrays.jl),
+etc.), including ones that are very long or ones that have elements of different
+types, both of which are cases that Julia's standard library often handles
+inefficiently. For example, the standard libary function `in` performs worse
+than this package's `unrolled_in` for `Tuple`s with elements of different types:
+
+```@repl inference_test
+@allocated () in ((1, 2), (1, 2, 3))
+@allocated unrolled_in((), ((1, 2), (1, 2, 3)))
+```
+
+The [loop unrolling](https://en.wikipedia.org/wiki/Loop_unrolling) automatically
+performed by this package offers the following benefits for statically sized
+iterators:
+- better support for *static compilation*
+  - compilation of [executables](https://github.com/tshort/StaticCompiler.jl)
+  - compilation of [GPU kernels](https://github.com/JuliaGPU/CUDA.jl)
+- better performance (usually)
+  - reduced run times
+  - reduced memory footprints while code is running
+- better compilation efficiency (occasionally)
+  - reduced compilation times
+  - reduced memory footprints while code is compiling
+
+To find out more about loop unrolling and when it is useful, see the
+[Introduction](introduction.md).
+
+## Package Features
+
+This package exports a number of analogues to functions from `Base` and
+`Base.Iterators`, each of which has been optimized for statically sized
+iterators (in terms of both performance and compilation time):
+- `unrolled_any(f, itr)`—similar to `any`
+- `unrolled_all(f, itr)`—similar to `all`
+- `unrolled_foreach(f, itrs...)`—similar to `foreach`
+- `unrolled_map(f, itrs...)`—similar to `map`
+- `unrolled_reduce(op, itr; [init])`—similar to `reduce`
+- `unrolled_mapreduce(f, op, itrs...; [init])`—similar to `mapreduce`
+- `unrolled_accumulate(op, itr; [init], [transform])`—similar to `accumulate`,
+  but with a `transform` that can be applied to every value in the output
+- `unrolled_push(itr, item)`—similar to `push!`, but non-mutating
+- `unrolled_append(itr1, itr2)`—similar to `append!`, but non-mutating
+- `unrolled_take(itr, ::Val{N})`—similar to `Iterators.take` (i.e., `itr[1:N]`),
+  but with `N` wrapped in a `Val`
+- `unrolled_drop(itr, ::Val{N})`—similar to `Iterators.drop` (i.e.,
+  `itr[(N + 1):end]`), but with `N` wrapped in a `Val`
+- `unrolled_in(item, itr)`—similar to `in`
+- `unrolled_unique(itr)`—similar to `unique`
+- `unrolled_filter(f, itr)`—similar to `filter`
+- `unrolled_flatten(itr)`—similar to `Iterators.flatten`
+- `unrolled_flatmap(f, itrs...)`—similar to `Iterators.flatmap`
+- `unrolled_product(itrs...)`—similar to `Iterators.product`
+
+In addition, this package exports two functions that do not have public
+analogues in `Base` or `Base.Iterators`:
+- `unrolled_applyat(f, n, itrs...)`—similar to `f(itrs[1][n], itrs[2][n], ...)`,
+  but with a `Core.Const` index in every call to `getindex`
+- `unrolled_split(f, itr)`—similar to `(filter(f, itr), filter(!f, itr))`, but
   without duplicate calls to `f`
-- `unrolled_flatten(itr)`: similar to `Iterators.flatten`
-- `unrolled_flatmap(f, itrs...)`: similar to `Iterators.flatmap`
-- `unrolled_product(itrs...)`: similar to `Iterators.product`
-- `unrolled_applyat(f, n, itrs...)`: similar to `f(map(itr -> itr[n], itrs)...)`
-- `unrolled_take(itr, ::Val{N})`: similar to `itr[1:N]` (and to
-  `Iterators.take`), but with `N` wrapped in a `Val`
-- `unrolled_drop(itr, ::Val{N})`: similar to `itr[(N + 1):end]` (and to
-  `Iterators.drop`), but with `N` wrapped in a `Val`
 
-These functions are guaranteed to be type-stable whenever they are given
-iterators with inferrable lengths and element types, including when
-- the iterators have many elements (e.g., more than 32, which is when `map`,
-  `reduce`, and `mapreduce` tend to stop getting compiled efficiently)
-- the iterators have nonuniform element types (most functions from `Base` and
-  `Base.Iterators` tend to encounter type-instabilities and allocations when
-  this is the case, especially when there are more than 32 elements)
-- `f` and/or `op` recursively call the function to which they are passed, up to
-  an arbitrarily large recursion depth (e.g., if `f` calls `map(f, itrs)`, it
-  will be type-unstable when the recursion depth exceeds 2, but this will not be
-  the case with `unrolled_map`)
+These unrolled functions are compatible with the following types of iterators:
+- statically sized iterators from `Base` (e.g., `Tuple` and `NamedTuple`)
+- statically sized iterators from `StaticArrays` (e.g., `SVector` and `MVector`)
+- lazy iterators from `Base` (e.g., the results of `enumerate`, `zip`,
+  `Iterators.map`, and generator expressions) that are used as wrappers for
+  statically sized iterators
 
-In addition, these functions have been written in a way that makes them very
-likely to get fully optimized out through constant propagation when the
-iterators have singleton element types (and when the result of calling `f`
-and/or `op` on these elements is inferrable). However, they can also be much
-more expensive to compile than their counterparts from `Base` and
-`Base.Iterators`, in which case they should not be used unless there is a clear
-performance benefit. Some notable exceptions to this are `unrolled_zip`,
-`unrolled_take`, and `unrolled_drop`, which tend to be easier to compile than
-`zip`, `Iterators.take`, `Iterators.drop`, and standard indexing notation.
+They are also compatible with two new types of statically sized iterators
+exported by this package:
+- `StaticOneTo`—similar to `Base.OneTo`
+- `StaticBitVector`—similar to `BitVector`
 
-For a more precise indication of whether you should use `UnrolledUtilities`,
-please consult the autogenerated [Comparison Table](@ref). This table contains a
-comprehensive set of potential use cases, each with a measurement of performance
-optimization, the time required for compilation, and the memory usage during
-compilation. Most cases involve simple functions `f` and/or `op`, but the last
-few demonstrate the benefits of unrolling with non-trivial recursive functions.
+See the [User Guide](@ref "When to Use StaticOneTo and StaticBitVector") for
+additional information about these new types of iterators.
 
-The rows of the table are highlighted as follows:
-- green indicates an improvement in performance and either no change in
-  compilation or easier compilation (i.e., either similar or smaller values of
-  compilation time and memory usage)
-- dark blue indicates an improvement in performance and harder compilation
-  (i.e., larger values of compilation time and/or memory usage)
-- light blue indicates no change in performance and easier compilation
-- yellow indicates no change in performance and no change in compilation
-- magenta indicates no change in performance, an increase in compilation time,
-  and a decrease in compilation memory usage
-- red indicates no change in performance and harder compilation
-
-Rows highlighted in green and blue present a clear advantage for unrolling,
-whereas those highlighted in yellow, magenta, and red either have no clear
-advantage, or they have a clear disadvantage. It is recommended that you only
-unroll when your use case is similar to a row in the first category.
-
-The table is also printed out by this package's unit tests, so these
-measurements can be compared across different operating systems by checking the
-[CI pipeline](https://github.com/CliMA/UnrolledUtilities.jl/actions/workflows/ci.yml).
+See the [Developer Guide](@ref "How to Use the Interface") to learn how
+user-defined iterator types can be made compatible with unrolled functions.

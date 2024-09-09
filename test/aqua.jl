@@ -1,3 +1,4 @@
+using Test
 import Aqua, UnrolledUtilities
 
 # This is separate from all the other tests because Aqua.test_all checks for
