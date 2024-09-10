@@ -56,10 +56,10 @@ include("generatively_unrolled_functions.jl")
     error("unrolled_applyat has detected an out-of-bounds index")
 
 @inline unrolled_reduce(op, itr, init) =
-    (rec_unroll(itr) ? rec_unrolled_reduce : gen_unrolled_reduce)(op, itr, init)
-@inline unrolled_reduce(op, itr; init = NoInit()) =
     isempty(itr) && init isa NoInit ?
     error("unrolled_reduce requires an init value for empty iterators") :
+    (rec_unroll(itr) ? rec_unrolled_reduce : gen_unrolled_reduce)(op, itr, init)
+@inline unrolled_reduce(op, itr; init = NoInit()) =
     unrolled_reduce(op, itr, init)
 
 # TODO: Figure out why unrolled_reduce(op, Val(N), init) compiles faster than
@@ -67,11 +67,9 @@ include("generatively_unrolled_functions.jl")
 # parametrization test in ClimaAtmos, to the point where the StaticOneTo version
 # completely hangs while the Val version compiles in only a few seconds.
 @inline unrolled_reduce(op, val_N::Val, init) =
-    val_unrolled_reduce(op, val_N, init)
-@inline unrolled_reduce(op, val_N::Val; init = NoInit()) =
     val_N isa Val{0} && init isa NoInit ?
-    error("unrolled_reduce requires an init value for empty iterators") :
-    unrolled_reduce(op, val_N, init)
+    error("unrolled_reduce requires an init value for Val(0)") :
+    val_unrolled_reduce(op, val_N, init)
 
 @inline unrolled_mapreduce(f, op, itrs...; init = NoInit()) =
     unrolled_reduce(op, Iterators.map(f, itrs...), init)
