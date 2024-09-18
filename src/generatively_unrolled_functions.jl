@@ -81,11 +81,10 @@ end
 # also causes compilation to hang. Even using the assignment form of the first
 # method definition below (as opposed to the function syntax used here) causes
 # it to hang. This has not yet been replicated in a minimal working example.
-@generated function val_unrolled_reduce(op, ::Val{N}, init) where {N}
-    return foldl((:init, 1:N...)) do prev_op_expr, item_expr
+@generated val_unrolled_reduce(op, ::Val{N}, init) where {N} =
+    foldl((:init, 1:N...)) do prev_op_expr, item_expr
         :(op($prev_op_expr, $item_expr))
     end
-end
 @generated val_unrolled_reduce(op, ::Val{N}, ::NoInit) where {N} = Expr(
     :block,
     Expr(:meta, :inline),
