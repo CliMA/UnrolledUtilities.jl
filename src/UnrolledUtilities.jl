@@ -72,7 +72,7 @@ include("generatively_unrolled_functions.jl")
     val_unrolled_reduce(op, val_N, init)
 
 @inline unrolled_mapreduce(f, op, itrs...; init = NoInit()) =
-    unrolled_reduce(op, Iterators.map(f, itrs...), init)
+    unrolled_reduce(op, unrolled_map(f, itrs...), init)
 
 @inline unrolled_accumulate_into_tuple(op, itr, init, transform) =
     (rec_unroll(itr) ? rec_unrolled_accumulate : gen_unrolled_accumulate)(
@@ -148,7 +148,7 @@ include("generatively_unrolled_functions.jl")
     unrolled_reduce(unrolled_append, itr; init = promoted_empty(itr))
 
 @inline unrolled_flatmap(f, itrs...) =
-    unrolled_flatten(Iterators.map(f, itrs...))
+    unrolled_flatten(unrolled_map(f, itrs...))
 
 @inline unrolled_product(itrs...) =
     unrolled_reduce(itrs; init = (promoted_empty(itrs),)) do product_itr, itr
@@ -172,6 +172,14 @@ abstract type StaticSequence{N} end
 include("StaticOneTo.jl")
 include("StaticBitVector.jl")
 
-include("recursion_limits.jl") # This must be included at the end of the module.
+# Remove the default recursion limit from every function defined in this module.
+@static if hasfield(Method, :recursion_relation)
+    module_names = names(@__MODULE__; all = true)
+    module_values = map(Base.Fix1(getproperty, @__MODULE__), module_names)
+    module_functions = filter(Base.Fix2(isa, Function), module_values)
+    for f in module_functions, method in methods(f)
+        method.recursion_relation = Returns(true)
+    end
+end
 
 end
