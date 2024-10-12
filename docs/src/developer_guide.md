@@ -6,7 +6,7 @@ CurrentModule = UnrolledUtilities
 
 There are two general ways to implement loop unrolling in Julia—recursively
 splatting iterator contents and manually generating unrolled expressions. For
-example, the recursively unrolled version of `foreach` is
+example, a recursively unrolled version of the `foreach` function is
 
 ```julia
 unrolled_foreach(f, itr) = _unrolled_foreach(f, itr...)
@@ -14,7 +14,7 @@ _unrolled_foreach(f) = nothing
 _unrolled_foreach(f, item, items...) = (f(item); _unrolled_foreach(f, items...))
 ```
 
-In contrast, the generatively unrolled version of `foreach` is
+In contrast, a generatively unrolled implementation of this function looks like
 
 ```julia
 unrolled_foreach(f, itr) = _unrolled_foreach(Val(length(itr)), f, itr)
@@ -30,15 +30,14 @@ rec_unroll
 ```
 
 !!! tip "Tip"
-    Recursive loop unrolling can be disabled globally with the following
-    function redefinition:
+    Recursive loop unrolling can be enabled by redefining this function:
 
     ```julia
-    rec_unroll(itr) = false
+    rec_unroll(itr) = true
     ```
 
-The cutoff length of 16 for switching to generative unrolling is motivated by
-the benchmarks for [Generative vs. Recursive Unrolling](@ref).
+The default choice of generative unrolling is motivated by the benchmarks for
+[Generative vs. Recursive Unrolling](@ref).
 
 ## Interface API
 

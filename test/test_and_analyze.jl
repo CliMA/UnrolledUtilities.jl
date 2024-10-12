@@ -877,7 +877,7 @@ title = "Very Long Iterators"
 comparison_table_dict = (comparison_table_dicts[title] = OrderedDict())
 
 @testset "unrolled functions of Tuples vs. StaticOneTos" begin
-    for itr in (ntuple(identity, 2000), StaticOneTo(2000), StaticOneTo(8185))
+    for itr in (ntuple(identity, 2000), StaticOneTo(2000), StaticOneTo(9000))
         @test_unrolled (itr,) unrolled_reduce(+, itr) reduce(+, itr) "Ints"
         @test_unrolled(
             (itr,),
@@ -885,24 +885,7 @@ comparison_table_dict = (comparison_table_dicts[title] = OrderedDict())
             mapreduce(log, +, itr),
             "Ints",
         )
-    end # These can each take 40 seconds to compile for ntuple(identity, 8185).
-    for itr in (ntuple(identity, 8186), StaticOneTo(8186))
-        @test_throws "gc handles" unrolled_reduce(+, itr)
-        @test_throws "gc handles" unrolled_mapreduce(log, +, itr)
-    end
-    # TODO: Why does the compiler throw an error when generating functions that
-    # get unrolled into more than 8185 lines of LLVM code?
-
-    for itr in (StaticOneTo(8185), StaticOneTo(8186))
-        @test_unrolled(
-            (itr,),
-            unrolled_reduce(+, Val(length(itr))),
-            reduce(+, itr),
-            "Ints",
-        )
-    end
-    @test_throws "gc handles" unrolled_reduce(+, Val(8188))
-    # TODO: Why is the limit 8186 for the Val version of unrolled_reduce?
+    end # These can take over a minute to compile for ntuple(identity, 9000).
 end
 
 title = "Generative vs. Recursive Unrolling"

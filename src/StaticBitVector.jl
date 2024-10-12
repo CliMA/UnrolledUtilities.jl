@@ -34,8 +34,8 @@ end
         @inline
         first_index = n_bits_per_int * (int_index - 1) + 1
         unrolled_reduce(
-            StaticOneTo(min(n_bits_per_int, N - first_index + 1));
-            init = zero(U),
+            StaticOneTo(min(n_bits_per_int, N - first_index + 1)),
+            zero(U),
         ) do int, bit_index
             @inline
             bit_offset = bit_index - 1
@@ -93,15 +93,15 @@ end
     n_bits_per_int = 8 * sizeof(U)
     n_ints = cld(N, n_bits_per_int)
     ints = unrolled_accumulate(
-        StaticOneTo(n_ints);
-        init = (nothing, init),
-        transform = first,
+        StaticOneTo(n_ints),
+        (nothing, init),
+        first,
     ) do (_, init_value_for_new_int), int_index
         @inline
         first_index = n_bits_per_int * (int_index - 1) + 1
         unrolled_reduce(
-            StaticOneTo(min(n_bits_per_int, N - first_index + 1));
-            init = (zero(U), init_value_for_new_int),
+            StaticOneTo(min(n_bits_per_int, N - first_index + 1)),
+            (zero(U), init_value_for_new_int),
         ) do (int, prev_value), bit_index
             @inline
             bit_offset = bit_index - 1

@@ -85,7 +85,7 @@ include("generatively_unrolled_functions.jl")
     constructor_from_tuple(output_type)(
         unrolled_accumulate_into_tuple(op, itr, init, transform),
     )
-@inline unrolled_accumulate(op, itr; init = NoInit(), transform = identity) =
+@inline unrolled_accumulate(op, itr, init, transform) =
     unrolled_accumulate_into(
         accumulate_output_type(op, itr, init, transform),
         op,
@@ -93,6 +93,8 @@ include("generatively_unrolled_functions.jl")
         init,
         transform,
     )
+@inline unrolled_accumulate(op, itr; init = NoInit(), transform = identity) =
+    unrolled_accumulate(op, itr, init, transform)
 
 @inline unrolled_push_into(output_type, itr, item) =
     constructor_from_tuple(output_type)((itr..., item))
@@ -122,22 +124,22 @@ include("generatively_unrolled_functions.jl")
 # Using === instead of == or isequal improves type stability for singletons.
 
 @inline unrolled_unique(itr) =
-    unrolled_reduce(itr; init = inferred_empty(itr)) do unique_items, item
+    unrolled_reduce(itr, inferred_empty(itr)) do unique_items, item
         @inline
         unrolled_in(item, unique_items) ? unique_items :
         unrolled_push(unique_items, item)
     end
 
 @inline unrolled_filter(f, itr) =
-    unrolled_reduce(itr; init = inferred_empty(itr)) do items_with_true_f, item
+    unrolled_reduce(itr, inferred_empty(itr)) do items_with_true_f, item
         @inline
         f(item) ? unrolled_push(items_with_true_f, item) : items_with_true_f
     end
 
 @inline unrolled_split(f, itr) =
     unrolled_reduce(
-        itr;
-        init = (inferred_empty(itr), inferred_empty(itr)),
+        itr,
+        (inferred_empty(itr), inferred_empty(itr)),
     ) do (items_with_true_f, items_with_false_f), item
         @inline
         f(item) ? (unrolled_push(items_with_true_f, item), items_with_false_f) :
@@ -145,13 +147,13 @@ include("generatively_unrolled_functions.jl")
     end
 
 @inline unrolled_flatten(itr) =
-    unrolled_reduce(unrolled_append, itr; init = promoted_empty(itr))
+    unrolled_reduce(unrolled_append, itr, promoted_empty(itr))
 
 @inline unrolled_flatmap(f, itrs...) =
     unrolled_flatten(Iterators.map(f, itrs...))
 
 @inline unrolled_product(itrs...) =
-    unrolled_reduce(itrs; init = (promoted_empty(itrs),)) do product_itr, itr
+    unrolled_reduce(itrs, (promoted_empty(itrs),)) do product_itr, itr
         @inline
         unrolled_flatmap(itr) do item
             @inline
