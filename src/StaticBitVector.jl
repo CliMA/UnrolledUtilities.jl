@@ -79,7 +79,7 @@ end
 
 @inline unrolled_map_into(::Type{StaticBitVector{<:Any, U}}, f, itr) where {U} =
     StaticBitVector{length(itr), U}(
-        Base.Fix1(generic_getindex, Iterators.map(f, itr)),
+        Base.Fix1(generic_getindex, semi_lazy_map(f, itr)),
     )
 
 @inline function unrolled_accumulate_into(

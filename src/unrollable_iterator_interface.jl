@@ -196,3 +196,13 @@ An empty output of type `output_type`. Defaults to applying the
 @inline inferred_empty(itr) = empty_output(inferred_output_type(itr))
 
 @inline promoted_empty(itrs) = empty_output(promoted_output_type(itrs))
+
+"""
+    semi_lazy_map(f, itrs...)
+
+Alternative to `Iterators.map` that avoids returning a `Base.Generator` wrapped
+in another `Base.Generator`.
+"""
+@inline semi_lazy_map(f::F, itr::Base.Generator) where {F} = 
+    Iterators.map(f, unrolled_map(itr.f, itr.iter))
+@inline semi_lazy_map(f::F, itrs...) where {F} = Iterators.map(f, itrs...)
