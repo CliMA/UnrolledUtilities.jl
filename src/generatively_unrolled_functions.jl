@@ -79,13 +79,9 @@ end
 # compilation to hang. Even just using the assignment form of the first method
 # definition below (as opposed to the function syntax used here) causes it to
 # hang. This behavior has not yet been replicated in a minimal working example.
-@generated val_unrolled_reduce(op, ::Val{N}, init) where {N} = quote
-    @inline
-    return Base.Cartesian.@nexprs $(N + 1) n ->
-        (value_n = n == 1 ? init : op(value_{n - 1}, n - 1))
-end
-@generated val_unrolled_reduce(op, ::Val{N}, ::NoInit) where {N} = quote
-    @inline
-    return Base.Cartesian.@nexprs $N n ->
-        (value_n = n == 1 ? 1 : op(value_{n - 1}, n))
-end
+@generated val_unrolled_reduce(op, ::Val{N}, init) where {N} =
+    :(Base.Cartesian.@nexprs $(N + 1) n ->
+        (value_n = n == 1 ? init : op(value_{n - 1}, n - 1)))
+@generated val_unrolled_reduce(op, ::Val{N}, ::NoInit) where {N} =
+    :(Base.Cartesian.@nexprs $N n ->
+        (value_n = n == 1 ? 1 : op(value_{n - 1}, n)))

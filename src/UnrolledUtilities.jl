@@ -174,6 +174,14 @@ abstract type StaticSequence{N} end
 include("StaticOneTo.jl")
 include("StaticBitVector.jl")
 
-include("recursion_limits.jl") # This must be included at the end of the module.
+# Remove the default recursion limit from every function defined in this module.
+@static if hasfield(Method, :recursion_relation)
+    module_names = names(@__MODULE__; all = true)
+    module_values = map(Base.Fix1(getproperty, @__MODULE__), module_names)
+    module_functions = filter(Base.Fix2(isa, Function), module_values)
+    for f in module_functions, method in methods(f)
+        method.recursion_relation = Returns(true)
+    end
+end
 
 end
