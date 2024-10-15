@@ -46,7 +46,7 @@ include("generatively_unrolled_functions.jl")
 @inline unrolled_map_into(output_type, f::F, itr) where {F} =
     constructor_from_tuple(output_type)(unrolled_map_into_tuple(f, itr))
 @inline unrolled_map(f::F, itr) where {F} =
-    unrolled_map_into(inferred_output_type(semi_lazy_map(f, itr)), f, itr)
+    unrolled_map_into(inferred_output_type(Iterators.map(f, itr)), f, itr)
 @inline unrolled_map(f::F, itrs...) where {F} =
     unrolled_map(splat(f), zip(itrs...))
 
@@ -74,7 +74,7 @@ include("generatively_unrolled_functions.jl")
     val_unrolled_reduce(op, val_N, init)
 
 @inline unrolled_mapreduce(f::F, op::O, itrs...; init = NoInit()) where {F, O} =
-    unrolled_reduce(op, semi_lazy_map(f, itrs...), init)
+    unrolled_reduce(op, unrolled_map(f, itrs...), init)
 
 @inline unrolled_accumulate_into_tuple(op::O, itr, init, transform) where {O} =
     (rec_unroll(itr) ? rec_unrolled_accumulate : gen_unrolled_accumulate)(
@@ -152,7 +152,7 @@ include("generatively_unrolled_functions.jl")
     unrolled_reduce(unrolled_append, itr, promoted_empty(itr))
 
 @inline unrolled_flatmap(f::F, itrs...) where {F} =
-    unrolled_flatten(semi_lazy_map(f, itrs...))
+    unrolled_flatten(unrolled_map(f, itrs...))
 
 @inline unrolled_product(itrs...) =
     unrolled_reduce(itrs, (promoted_empty(itrs),)) do product_itr, itr
