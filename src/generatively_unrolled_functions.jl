@@ -2,30 +2,27 @@
     @inline
     return Base.Cartesian.@nany $N n -> f(generic_getindex(itr, n))
 end
-@inline gen_unrolled_any(f::F, itr) where {F} =
-    _gen_unrolled_any(Val(length(itr)), f, itr)
+@inline gen_unrolled_any(f, itr) = _gen_unrolled_any(Val(length(itr)), f, itr)
 
 @generated _gen_unrolled_all(::Val{N}, f, itr) where {N} = quote
     @inline
     return Base.Cartesian.@nall $N n -> f(generic_getindex(itr, n))
 end
-@inline gen_unrolled_all(f::F, itr) where {F} =
-    _gen_unrolled_all(Val(length(itr)), f, itr)
+@inline gen_unrolled_all(f, itr) = _gen_unrolled_all(Val(length(itr)), f, itr)
 
 @generated _gen_unrolled_foreach(::Val{N}, f, itr) where {N} = quote
     @inline
     Base.Cartesian.@nexprs $N n -> f(generic_getindex(itr, n))
     return nothing
 end
-@inline gen_unrolled_foreach(f::F, itr) where {F} =
+@inline gen_unrolled_foreach(f, itr) =
     _gen_unrolled_foreach(Val(length(itr)), f, itr)
 
 @generated _gen_unrolled_map(::Val{N}, f, itr) where {N} = quote
     @inline
     return Base.Cartesian.@ntuple $N n -> f(generic_getindex(itr, n))
 end
-@inline gen_unrolled_map(f::F, itr) where {F} =
-    _gen_unrolled_map(Val(length(itr)), f, itr)
+@inline gen_unrolled_map(f, itr) = _gen_unrolled_map(Val(length(itr)), f, itr)
 
 @generated _gen_unrolled_applyat(::Val{N}, f, n′, itr) where {N} = quote
     @inline
@@ -33,7 +30,7 @@ end
         (n′ == n && return f(generic_getindex(itr, n)))
     unrolled_applyat_bounds_error()
 end # This is optimized into a switch instruction during LLVM code generation.
-@inline gen_unrolled_applyat(f::F, n, itr) where {F} =
+@inline gen_unrolled_applyat(f, n, itr) =
     _gen_unrolled_applyat(Val(length(itr)), f, n, itr)
 
 @generated _gen_unrolled_reduce(::Val{N}, op, itr, init) where {N} = quote
@@ -50,7 +47,7 @@ end
     return Base.Cartesian.@nexprs $(N - 1) n ->
         (value_{n + 1} = op(value_n, generic_getindex(itr, n + 1)))
 end
-@inline gen_unrolled_reduce(op::O, itr, init) where {O} =
+@inline gen_unrolled_reduce(op, itr, init) =
     _gen_unrolled_reduce(Val(length(itr)), op, itr, init)
 
 @generated _gen_unrolled_accumulate(
@@ -68,7 +65,7 @@ end
         (value_{n + 1} = op(value_n, generic_getindex(itr, n + 1)))
     return Base.Cartesian.@ntuple $N n -> transform(value_n)
 end
-@inline gen_unrolled_accumulate(op::O, itr, init, transform) where {O} =
+@inline gen_unrolled_accumulate(op, itr, init, transform) =
     _gen_unrolled_accumulate(Val(length(itr)), op, itr, init, transform)
 
 # TODO: The following is experimental and will likely be removed in the future.
