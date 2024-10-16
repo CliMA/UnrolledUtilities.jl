@@ -85,7 +85,7 @@ include("generatively_unrolled_functions.jl")
     constructor_from_tuple(output_type)(
         unrolled_accumulate_into_tuple(op, itr, init, transform),
     )
-@inline unrolled_accumulate(op, itr, init, transform) =
+@inline unrolled_accumulate(op, itr; init = NoInit(), transform = identity) =
     unrolled_accumulate_into(
         accumulate_output_type(op, itr, init, transform),
         op,
@@ -93,8 +93,6 @@ include("generatively_unrolled_functions.jl")
         init,
         transform,
     )
-@inline unrolled_accumulate(op, itr; init = NoInit(), transform = identity) =
-    unrolled_accumulate(op, itr, init, transform)
 
 @inline unrolled_push_into(output_type, itr, item) =
     constructor_from_tuple(output_type)((itr..., item))
@@ -124,22 +122,22 @@ include("generatively_unrolled_functions.jl")
 # Using === instead of == or isequal improves type stability for singletons.
 
 @inline unrolled_unique(itr) =
-    unrolled_reduce(itr, inferred_empty(itr)) do unique_items, item
+    unrolled_reduce(itr; init = inferred_empty(itr)) do unique_items, item
         @inline
         unrolled_in(item, unique_items) ? unique_items :
         unrolled_push(unique_items, item)
     end
 
 @inline unrolled_filter(f, itr) =
-    unrolled_reduce(itr, inferred_empty(itr)) do items_with_true_f, item
+    unrolled_reduce(itr; init = inferred_empty(itr)) do items_with_true_f, item
         @inline
         f(item) ? unrolled_push(items_with_true_f, item) : items_with_true_f
     end
 
 @inline unrolled_split(f, itr) =
     unrolled_reduce(
-        itr,
-        (inferred_empty(itr), inferred_empty(itr)),
+        itr;
+        init = (inferred_empty(itr), inferred_empty(itr)),
     ) do (items_with_true_f, items_with_false_f), item
         @inline
         f(item) ? (unrolled_push(items_with_true_f, item), items_with_false_f) :
@@ -147,13 +145,13 @@ include("generatively_unrolled_functions.jl")
     end
 
 @inline unrolled_flatten(itr) =
-    unrolled_reduce(unrolled_append, itr, promoted_empty(itr))
+    unrolled_reduce(unrolled_append, itr; init = promoted_empty(itr))
 
 @inline unrolled_flatmap(f, itrs...) =
     unrolled_flatten(unrolled_map(f, itrs...))
 
 @inline unrolled_product(itrs...) =
-    unrolled_reduce(itrs, (promoted_empty(itrs),)) do product_itr, itr
+    unrolled_reduce(itrs; init = (promoted_empty(itrs),)) do product_itr, itr
         @inline
         unrolled_flatmap(itr) do item
             @inline
@@ -174,6 +172,14 @@ abstract type StaticSequence{N} end
 include("StaticOneTo.jl")
 include("StaticBitVector.jl")
 
-include("recursion_limits.jl") # This must be included at the end of the module.
+# Remove the default recursion limit from every function defined in this module.
+@static if hasfield(Method, :recursion_relation)
+    module_names = names(@__MODULE__; all = true)
+    module_values = map(Base.Fix1(getproperty, @__MODULE__), module_names)
+    module_functions = filter(Base.Fix2(isa, Function), module_values)
+    for f in module_functions, method in methods(f)
+        method.recursion_relation = Returns(true)
+    end
+end
 
 end
