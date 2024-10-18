@@ -2,17 +2,10 @@
     rec_unroll(itr)
 
 Whether to use recursive loop unrolling instead of generative loop unrolling for
-the iterator `itr`.
-
-In general, recursive loop unrolling is faster to compile for small iterators,
-but it becomes extremely slow to compile for long iterators, and it usually
-generates suboptimal LLVM code for long iterators. On the other hand, generative
-loop unrolling is slow to compile for small iterators, but its compilation time
-does not grow as rapidly with respect to iterator size, and it always generates
-optimal LLVM code. The default is currently to use recursive unrolling for
-iterator lengths up to 16, and to use generative unrolling for longer iterators.
+the iterator `itr`. Recursive unrolling can lead to suboptimal LLVM code for
+iterators of more than 32 items, so this is set to `false` by default.
 """
-@inline rec_unroll(itr) = length(itr) <= 16
+@inline rec_unroll(itr) = false
 
 """
     generic_getindex(itr, n)
