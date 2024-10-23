@@ -63,15 +63,6 @@ include("generatively_unrolled_functions.jl")
 @inline unrolled_reduce(op::O, itr; init = NoInit()) where {O} =
     unrolled_reduce(op, itr, init)
 
-# TODO: Figure out why unrolled_reduce(op, Val(N), init) compiles faster than
-# unrolled_reduce(op, StaticOneTo(N), init) for the non-orographic gravity wave
-# parametrization test in ClimaAtmos, to the point where the StaticOneTo version
-# completely hangs while the Val version compiles in only a few seconds.
-@inline unrolled_reduce(op::O, val_N::Val, init) where {O} =
-    val_N isa Val{0} && init isa NoInit ?
-    error("unrolled_reduce requires an init value for Val(0)") :
-    val_unrolled_reduce(op, val_N, init)
-
 @inline unrolled_mapreduce(f::F, op::O, itrs...; init = NoInit()) where {F, O} =
     unrolled_reduce(op, unrolled_map(f, itrs...), init)
 
