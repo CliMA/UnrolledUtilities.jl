@@ -1,5 +1,4 @@
 name: CodeCov
-
 on:
   push:
     branches:
@@ -9,35 +8,20 @@ on:
   merge_group:
 
 jobs:
-  codecov:
+  test:
+    name: CodeCov
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Julia
-      uses: julia-actions/setup-julia@latest
-      with:
-        version: '1.10'
-
-    - name: Test with coverage
-      env:
-        JULIA_PROJECT: "@."
-      run: |
-        julia --project=@. -e 'using Pkg; Pkg.instantiate()'
-        julia --project=@. -e 'using Pkg; Pkg.test(coverage=true)'
-
-    - name: Generate coverage file
-      env:
-        JULIA_PROJECT: "@."
-      run: julia --project=@. -e 'using Pkg; Pkg.add("Coverage");
-                                  using Coverage;
-                                  LCOV.writefile("coverage-lcov.info", Codecov.process_folder())'
-      if: success()
-
-    - name: Submit coverage
-      uses: codecov/codecov-action@v3
-      with:
-        token: ${{secrets.CODECOV_TOKEN}}
-      if: success()
-
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v1
+        with:
+          version: 1.11
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+        with:
+          test_args: 'fast_mode' # Testing with code coverage is very slow.
+      - uses: julia-actions/julia-processcoverage@v1
+      - uses: codecov/codecov-action@v5
+        with:
+          file: lcov.info
+          token: ${{secrets.CODECOV_TOKEN}}

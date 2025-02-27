@@ -6,7 +6,9 @@
 </picture>
 </h1>
 
-A toolkit for optimizing Julia code that uses statically sized iterators.
+Are you feeling type unstable? Struggling to compile code for GPUs? Do you find yourself with more allocations than FLOPS?
+
+Ask your developer if *UnrolledUtilities.jl* is right for you.
 
 |||
 |---------------------:|:----------------------------------------------|

@@ -1,3 +1,11 @@
+# TODO: Replace all of these with manually unrolled functions, which should be
+# faster to compile. That is the pattern used in Base for ntuple, map, etc.
+
+@inline _rec_unrolled_map(f) = ()
+@inline _rec_unrolled_map(f, item, items...) =
+    (f(item), _rec_unrolled_map(f, items...)...)
+@inline rec_unrolled_map(f, itr) = _rec_unrolled_map(f, itr...)
+
 @inline _rec_unrolled_any(f) = false
 @inline _rec_unrolled_any(f, item, items...) =
     f(item) || _rec_unrolled_any(f, items...)
@@ -13,16 +21,6 @@
     (f(item); _rec_unrolled_foreach(f, items...))
 @inline rec_unrolled_foreach(f, itr) = _rec_unrolled_foreach(f, itr...)
 
-@inline _rec_unrolled_map(f) = ()
-@inline _rec_unrolled_map(f, item, items...) =
-    (f(item), _rec_unrolled_map(f, items...)...)
-@inline rec_unrolled_map(f, itr) = _rec_unrolled_map(f, itr...)
-
-@inline _rec_unrolled_applyat(f, offset_n) = unrolled_applyat_bounds_error()
-@inline _rec_unrolled_applyat(f, offset_n, item, items...) =
-    offset_n == 1 ? f(item) : _rec_unrolled_applyat(f, offset_n - 1, items...)
-@inline rec_unrolled_applyat(f, n, itr) = _rec_unrolled_applyat(f, n, itr...)
-
 @inline _rec_unrolled_reduce(op, prev_value) = prev_value
 @inline _rec_unrolled_reduce(op, prev_value, item, items...) =
     _rec_unrolled_reduce(op, op(prev_value, item), items...)
@@ -30,18 +28,36 @@
     init isa NoInit ? _rec_unrolled_reduce(op, itr...) :
     _rec_unrolled_reduce(op, init, itr...)
 
-@inline _rec_unrolled_accumulate(op, transform, prev_value) =
-    (transform(prev_value),)
-@inline _rec_unrolled_accumulate(op, transform, prev_value, item, items...) = (
-    transform(prev_value),
-    _rec_unrolled_accumulate(op, transform, op(prev_value, item), items...)...,
+@inline _rec_unrolled_accumulate(op, prev_value) = (prev_value,)
+@inline _rec_unrolled_accumulate(op, prev_value, item, items...) = (
+    prev_value,
+    _rec_unrolled_accumulate(op, op(prev_value, item), items...)...,
 )
-@inline rec_unrolled_accumulate(op, itr, init, transform) =
+@inline rec_unrolled_accumulate(op, itr, init) =
     isempty(itr) ? () :
-    init isa NoInit ? _rec_unrolled_accumulate(op, transform, itr...) :
+    init isa NoInit ? _rec_unrolled_accumulate(op, itr...) :
     _rec_unrolled_accumulate(
         op,
-        transform,
         op(init, generic_getindex(itr, 1)),
         unrolled_drop(itr, Val(1))...,
     )
+
+@inline _rec_unrolled_ifelse(f, get_if, get_else) = get_else()
+@inline _rec_unrolled_ifelse(f, get_if, get_else, item, items...) =
+    f(item) ? get_if(item) : _rec_unrolled_ifelse(f, get_if, get_else, items...)
+@inline rec_unrolled_ifelse(f, get_if, get_else, itr) =
+    _rec_unrolled_ifelse(f, get_if, get_else, itr...)
+
+@inline _rec_unrolled_ifelse2(f, get_if, get_else) = get_else()
+@inline _rec_unrolled_ifelse2(f, get_if, get_else, (item1, item2), items...) =
+    f(item1) ? get_if(item2) :
+    _rec_unrolled_ifelse2(f, get_if, get_else, items...)
+@inline rec_unrolled_ifelse(f, get_if, get_else, itr1, itr2) =
+    _rec_unrolled_ifelse2(f, get_if, get_else, _unrolled_zip(itr1, itr2)...)
+# Using zip here triggers the recursion limit for one unit test on Julia 1.10.
+
+@inline _unrolled_zip(itr1, itr2) =
+    ntuple(Val(min(length(itr1), length(itr2)))) do n
+        @inline
+        (generic_getindex(itr1, n), generic_getindex(itr2, n))
+    end

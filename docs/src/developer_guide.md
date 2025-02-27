@@ -29,14 +29,7 @@ following function:
 rec_unroll
 ```
 
-!!! tip "Tip"
-    Recursive loop unrolling can be enabled by redefining this function:
-
-    ```julia
-    rec_unroll(itr) = true
-    ```
-
-The default choice of generative unrolling is motivated by the benchmarks for
+The default choice for `rec_unroll` is motivated by the benchmarks for
 [Generative vs. Recursive Unrolling](@ref).
 
 ## Interface API
@@ -54,6 +47,7 @@ ConditionalOutputType
 output_promote_rule
 constructor_from_tuple
 empty_output
+StaticSequence
 ```
 
 ## How to Use the Interface
@@ -83,12 +77,12 @@ these steps:
           be implemented to construct an iterator of type `U` without first
           storing the iterator's contents in a `Tuple`:
             - `empty_output(U)`
-            - `unrolled_map_into(U, f, itr)`
-            - `unrolled_accumulate_into(U, op, itr, init, transform)`
             - `unrolled_push_into(U, itr, item)`
             - `unrolled_append_into(U, itr1, itr2)`
             - `unrolled_take_into(U, itr, val_N)`
             - `unrolled_drop_into(U, itr, val_N)`
+            - `unrolled_map_into(U, f, itr)`
+            - `unrolled_accumulate_into(U, op, itr, init, transform)`
 
 !!! note "Note"
     When a relevant method for the interface is not defined, unrolled functions

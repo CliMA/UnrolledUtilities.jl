@@ -15,8 +15,11 @@ inefficiently. For example, the standard libary function `in` performs worse
 than this package's `unrolled_in` for `Tuple`s with elements of different types:
 
 ```@repl inference_test
-@allocated () in ((1, 2), (1, 2, 3))
-@allocated unrolled_in((), ((1, 2), (1, 2, 3)))
+nonuniform_itr = ((1, 2), (1, 2, 3));
+() in nonuniform_itr # hide
+@allocated () in nonuniform_itr
+unrolled_in((), nonuniform_itr) # hide
+@allocated unrolled_in((), nonuniform_itr)
 ```
 
 The [loop unrolling](https://en.wikipedia.org/wiki/Loop_unrolling) automatically
@@ -40,40 +43,64 @@ To find out more about loop unrolling and when it is useful, see the
 This package exports a number of analogues to functions from `Base` and
 `Base.Iterators`, each of which has been optimized for statically sized
 iterators (in terms of both performance and compilation time):
-- `unrolled_any(f, itr)`—similar to `any`
-- `unrolled_all(f, itr)`—similar to `all`
-- `unrolled_foreach(f, itrs...)`—similar to `foreach`
-- `unrolled_map(f, itrs...)`—similar to `map`
-- `unrolled_reduce(op, itr; [init])`—similar to `reduce`
-- `unrolled_mapreduce(f, op, itrs...; [init])`—similar to `mapreduce`
-- `unrolled_accumulate(op, itr; [init], [transform])`—similar to `accumulate`,
-  but with a `transform` that can be applied to every value in the output
 - `unrolled_push(itr, item)`—similar to `push!`, but non-mutating
-- `unrolled_append(itr1, itr2)`—similar to `append!`, but non-mutating
-- `unrolled_take(itr, ::Val{N})`—similar to `Iterators.take` (i.e., `itr[1:N]`),
-  but with `N` wrapped in a `Val`
-- `unrolled_drop(itr, ::Val{N})`—similar to `Iterators.drop` (i.e.,
-  `itr[(N + 1):end]`), but with `N` wrapped in a `Val`
+- `unrolled_append(itr, itrs...)`—similar to `append!`, but non-mutating
+- `unrolled_prepend(itr, itrs...)`—similar to `prepend!`, but non-mutating
+- `unrolled_map(f, itrs...)`—similar to `map`
+- `unrolled_any([f], itr)`—similar to `any`
+- `unrolled_all([f], itr)`—similar to `all`
+- `unrolled_foreach(f, itrs...)`—similar to `foreach`
+- `unrolled_reduce(op, itr; [init])`—similar to `reduce` (i.e., `foldl`)
+- `unrolled_mapreduce(f, op, itrs...; [init])`—similar to `mapreduce` (i.e.,
+  `mapfoldl`)
+- `unrolled_accumulate(op, itr; [init])`—similar to `accumulate`
 - `unrolled_in(item, itr)`—similar to `in`
-- `unrolled_unique(itr)`—similar to `unique`
+- `unrolled_unique([f], itr)`—similar to `unique`
+- `unrolled_allunique([f], itr)`—similar to `allunique`
+- `unrolled_allequal([f], itr)`—similar to `allequal`
+- `unrolled_sum([f], itr; [init])`—similar to `sum`, but with `init = 0` when
+  `itr` is empty
+- `unrolled_prod([f], itr; [init])`—similar to `prod`, but with `init = 1` when
+  `itr` is empty
+- `unrolled_cumsum([f], itr)`—similar to `cumsum`, but with an optional `f`
+- `unrolled_cumprod([f], itr)`—similar to `cumprod`, but with an optional `f`
+- `unrolled_count([f], itr)`—similar to `count`
+- `unrolled_maximum([f], itr)`—similar to `maximum`
+- `unrolled_minimum([f], itr)`—similar to `minimum`
+- `unrolled_extrema([f], itr)`—similar to `extrema`
+- `unrolled_findmax([f], itr)`—similar to `findmax`
+- `unrolled_findmin([f], itr)`—similar to `findmin`
+- `unrolled_argmax([f], itr)`—similar to `argmax`
+- `unrolled_argmin([f], itr)`—similar to `argmin`
+- `unrolled_findfirst([f], itr)`—similar to `findfirst`
+- `unrolled_findlast([f], itr)`—similar to `findlast`
 - `unrolled_filter(f, itr)`—similar to `filter`
 - `unrolled_flatten(itr)`—similar to `Iterators.flatten`
 - `unrolled_flatmap(f, itrs...)`—similar to `Iterators.flatmap`
 - `unrolled_product(itrs...)`—similar to `Iterators.product`
+- `unrolled_cycle(itr, ::Val{N})`—similar to `Iterators.cycle`, but with a
+  static value of `N`
+- `unrolled_partition(itr, ::Val{N})`—similar to `Iterators.partition`, but with
+  a static value of `N`
+- `unrolled_take(itr, ::Val{N})`—similar to `Iterators.take` (i.e., `itr[1:N]`),
+  but with a static value of `N`
+- `unrolled_drop(itr, ::Val{N})`—similar to `Iterators.drop` (i.e.,
+  `itr[(N + 1):end]`), but with a static value of `N`
 
-In addition, this package exports two functions that do not have public
-analogues in `Base` or `Base.Iterators`:
-- `unrolled_applyat(f, n, itrs...)`—similar to `f(itrs[1][n], itrs[2][n], ...)`,
-  but with a `Core.Const` index in every call to `getindex`
+In addition, this package exports several functions that do not have analogues
+in `Base` or `Base.Iterators`:
+- `unrolled_applyat(f, n, itrs...)`—similar to `f(itrs[1][n], itrs[2][n], ...)`
+- `unrolled_argfirst(f, itr)`—similar to `itr[findfirst(f, itr)]`
+- `unrolled_arglast(f, itr)`—similar to `itr[findlast(f, itr)]`
 - `unrolled_split(f, itr)`—similar to `(filter(f, itr), filter(!f, itr))`, but
   without duplicate calls to `f`
 
 These unrolled functions are compatible with the following types of iterators:
 - statically sized iterators from `Base` (e.g., `Tuple` and `NamedTuple`)
 - statically sized iterators from `StaticArrays` (e.g., `SVector` and `MVector`)
-- lazy iterators from `Base` (e.g., the results of `enumerate`, `zip`,
-  `Iterators.map`, and generator expressions) that are used as wrappers for
-  statically sized iterators
+- lazy iterators from `Base` (e.g., the results of generator expressions,
+  `Iterators.map`, `Iterators.reverse`, `enumerate`, and `zip`) that are used as
+  wrappers for statically sized iterators
 
 They are also compatible with two new types of statically sized iterators
 exported by this package:
