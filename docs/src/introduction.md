@@ -208,17 +208,12 @@ hand, here is the LLVM code for the non-unrolled version of this loop:
 @code_llvm debuginfo=:none foreach(println, Tuple(1:33))
 ```
 
-Although the first `getelementptr` instruction here has the constant index 0,
-the other `getelementptr` instruction has a non-constant integer index. Also,
-this LLVM code has conditional jump instructions for checking whether the last
-index of the `Tuple` has been reached after each `getelementptr` instruction.
+This LLVM code has a `load` instruction to get the first value and a
+`getelementptr` instruction with a non-constant integer index to get all other
+values. It also has conditional jump instructions for checking whether the last
+index has been reached after each `load` and `getelementptr` instruction.
 
 ## Downsides of Loop Unrolling
-
-```@setup tuple_of_tuples_test
-using UnrolledUtilities, Test
-tup32 = ntuple(Returns((1, 2)), 32)
-```
 
 Given the performance benefits of loop unrolling, it might seem at first that
 the standard library needs more of it. However, the standard library is not just
@@ -230,7 +225,7 @@ occasionally be faster to compile than non-unrolled functions, they are
 typically slower to compile, which means that using them instead of standard
 library functions can often increase total execution time:
 
-```@repl tuple_of_tuples_test
+```@repl inference_test
 tup32 = ntuple(Returns((1, 2)), 32);
 @elapsed map(first, tup32)
 @elapsed unrolled_map(first, tup32)
@@ -239,30 +234,16 @@ tup32 = ntuple(Returns((1, 2)), 32);
 The increase in compilation time is usually no more than a factor of 5 for small
 iterators, but it grows as iterator length increases:
 
-```@repl tuple_of_tuples_test
+```@repl inference_test
 tup320 = ntuple(Returns((1, 2)), 320);
 @elapsed map(first, tup320)
 @elapsed unrolled_map(first, tup320)
 ```
 
-Moreover, loop unrolling can sometimes increase the run time of a function in
-addition to its compilation time:
-
-```@repl tuple_of_tuples_test
-@elapsed Tuple(Iterators.product(tup32, tup32)) # compilation time + run time
-@elapsed Tuple(Iterators.product(tup32, tup32)) # only run time
-@elapsed unrolled_product(tup32, tup32) # compilation time + run time
-@elapsed unrolled_product(tup32, tup32) # only run time
-```
-
-This increase in run time is most likely due to the larger size of unrolled
-code, which makes it take longer to load. Nevertheless, loop unrolling still
-offers the benefit of eliminating the unstable return type in this example:
-
-```@repl tuple_of_tuples_test
-Test.@inferred Tuple(Iterators.product(tup32, tup32));
-Test.@inferred unrolled_product(tup32, tup32);
-```
+Loop unrolling can also theoretically increase the run time of a function in
+addition to its compilation time, since unrolled assembly code requires more
+space and takes longer to load than non-unrolled code. In practice, though, the
+constant propagation enabled by unrolling usually compensates for this slowdown.
 
 So, when type instabilities and memory allocations need to be removed
 ([as is required for static compilation](https://github.com/brenhinkeller/StaticTools.jl#limitations))
