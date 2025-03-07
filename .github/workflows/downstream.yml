@@ -40,7 +40,4 @@ jobs:
           path: ${{ matrix.package }}
 
       - run: |
-          julia --color=yes -e 'using Pkg; Pkg.add("TestEnv")'
-          julia --color=yes --project=${{ matrix.package }} -e 'using Pkg; Pkg.instantiate()'
-          julia --color=yes --check-bounds=yes --project=${{ matrix.package }} -e 'using TestEnv; TestEnv.activate();\
-            using Pkg; Pkg.develop(; path = "."); include("${{ matrix.package }}/test/runtests.jl")'
+          julia --color=yes --project=${{ matrix.package }} -e 'using Pkg; Pkg.instantiate(); Pkg.develop(; path = "."); Pkg.test()'
