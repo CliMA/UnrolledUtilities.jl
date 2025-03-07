@@ -289,11 +289,16 @@ macro test_unrolled(
             isempty(JET.get_reports(@report_opt reference_func($(args...))))
         $(esc(skip_type_stability_test)) || @test_opt unrolled_func($(args...))
 
+        unrolled_code = code_instance(unrolled_func, $(args...))
+        reference_code = code_instance(reference_func, $(args...))
+
         # Test for constant propagation.
         is_unrolled_const =
-            isdefined(code_instance(unrolled_func, $(args...)), :rettype_const)
+            isdefined(unrolled_code, :rettype_const) &&
+            isbits(unrolled_code.rettype_const)
         is_reference_const =
-            isdefined(code_instance(reference_func, $(args...)), :rettype_const)
+            isdefined(reference_code, :rettype_const) &&
+            isbits(reference_code.rettype_const)
 
         buffer = IOBuffer()
         args_type = Tuple{map(typeof, ($(args...),))...}
@@ -761,12 +766,15 @@ for itr in (
             str,
         )
 
+        # TODO: Testing with coverage triggers allocations for unrolled_product!
         if length(itr) <= 32
             @test_unrolled(
                 (itr,),
                 unrolled_product(itr, itr),
                 Tuple(Iterators.product(itr, itr)),
                 str,
+                "fast_mode" in ARGS,
+                "fast_mode" in ARGS,
             )
         end # This can take several minutes to compile when the length is 128.
         if length(itr) <= 8
@@ -775,6 +783,8 @@ for itr in (
                 unrolled_product(itr, itr, itr),
                 Tuple(Iterators.product(itr, itr, itr)),
                 str,
+                "fast_mode" in ARGS,
+                "fast_mode" in ARGS,
             )
         end # This can take several minutes to compile when the length is 32.
 
