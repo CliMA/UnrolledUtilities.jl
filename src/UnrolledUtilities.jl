@@ -399,8 +399,10 @@ include("generatively_unrolled_functions.jl")
 @inline unrolled_product(itrs...) =
     ntuple(Val(unrolled_prod(length, itrs))) do n
         @inline
+        Base.@assume_effects :foldable
         items = ntuple(Val(length(itrs))) do itr_index
             @inline
+            Base.@assume_effects :foldable
             cur_length = length(itrs[itr_index])
             prev_length = unrolled_prod(length, itrs[1:(itr_index - 1)])
             item_index = (n - 1) ÷ prev_length % cur_length + 1
