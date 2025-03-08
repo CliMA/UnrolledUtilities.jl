@@ -82,6 +82,39 @@ end
         Base.Fix1(generic_getindex, Iterators.map(f, itr)),
     )
 
+@inline function unrolled_accumulate_into(
+    ::Type{StaticBitVector{<:Any, U}},
+    op,
+    itr,
+    init,
+    transform,
+) where {U}
+    N = length(itr)
+    n_bits_per_int = 8 * sizeof(U)
+    n_ints = cld(N, n_bits_per_int)
+    ints = unrolled_accumulate(
+        StaticOneTo(n_ints),
+        (nothing, init),
+        first,
+    ) do (_, init_value_for_new_int), int_index
+        @inline
+        first_index = n_bits_per_int * (int_index - 1) + 1
+        unrolled_reduce(
+            StaticOneTo(min(n_bits_per_int, N - first_index + 1)),
+            (zero(U), init_value_for_new_int),
+        ) do (int, prev_value), bit_index
+            @inline
+            bit_offset = bit_index - 1
+            item = generic_getindex(itr, first_index + bit_offset)
+            new_value =
+                first_index + bit_offset == 1 && prev_value isa NoInit ?
+                item : op(prev_value, item)
+            (int | U(transform(new_value)::Bool) << bit_offset, new_value)
+        end
+    end
+    return StaticBitVector{N, U}(ints)
+end
+
 @inline function unrolled_push_into(
     ::Type{StaticBitVector{<:Any, U}},
     itr,
@@ -158,36 +191,4 @@ end
         end
     end
     return StaticBitVector{length(itr) - N, U}(ints)
-end
-
-@inline function unrolled_accumulate_into(
-    ::Type{StaticBitVector{<:Any, U}},
-    op,
-    itr,
-    init,
-) where {U}
-    N = length(itr)
-    n_bits_per_int = 8 * sizeof(U)
-    n_ints = cld(N, n_bits_per_int)
-    ints = unrolled_accumulate(
-        StaticOneTo(n_ints),
-        (nothing, init),
-        first,
-    ) do (_, init_value_for_new_int), int_index
-        @inline
-        first_index = n_bits_per_int * (int_index - 1) + 1
-        unrolled_reduce(
-            StaticOneTo(min(n_bits_per_int, N - first_index + 1)),
-            (zero(U), init_value_for_new_int),
-        ) do (int, prev_value), bit_index
-            @inline
-            bit_offset = bit_index - 1
-            item = generic_getindex(itr, first_index + bit_offset)
-            new_value =
-                first_index + bit_offset == 1 && prev_value isa NoInit ?
-                item : op(prev_value, item)
-            (int | U(new_value::Bool) << bit_offset, new_value)
-        end
-    end
-    return StaticBitVector{N, U}(ints)
 end

@@ -23,7 +23,7 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
         if contains(optimization, "better") ||
            contains(optimization, "fewer allocs") &&
            !contains(run_time, "more") ||
-           contains(optimization, "similar") && contains(run_time, "less")
+           contains(optimization, "identical") && contains(run_time, "less")
             # better performance
             if !contains(run_time, "more") &&
                !contains(compile_time, "more") &&
@@ -46,7 +46,7 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
                     color(writing_to_docs ? "khaki" : "yellow")
                 end
             end
-        elseif contains(optimization, "similar") &&
+        elseif contains(optimization, "identical") &&
                contains(run_time, "similar")
             # similar performance
             if contains(compile_time, "less") && !contains(allocs, "more") ||
@@ -155,26 +155,17 @@ function memory_string(bytes)
     end
 end
 
-function comparison_string(
-    value1,
-    value2,
-    to_string;
-    to_number = identity,
-    epsilon = 0,
-)
-    number1 = to_number(value1)
-    number2 = to_number(value2)
-    ratio = number1 / number2
-    ratio_str =
-        if ratio < 2 && inv(ratio) < 2 || number1 < epsilon && number2 < epsilon
-            "similar"
-        elseif ratio >= 2
-            floored_ratio = ratio == Inf ? Inf : floor(Int, ratio)
-            "$floored_ratio times more"
-        else
-            floored_inv_ratio = ratio == 0 ? Inf : floor(Int, inv(ratio))
-            "$floored_inv_ratio times less"
-        end
+function comparison_string(value1, value2, to_string, to_number = identity)
+    ratio = to_number(value1) / to_number(value2)
+    ratio_str = if ratio >= 2
+        floored_ratio = ratio == Inf ? Inf : floor(Int, ratio)
+        "$floored_ratio times more"
+    elseif inv(ratio) >= 2
+        floored_inv_ratio = ratio == 0 ? Inf : floor(Int, inv(ratio))
+        "$floored_inv_ratio times less"
+    else
+        "similar"
+    end
     return "$ratio_str ($(to_string(value1)) vs. $(to_string(value2)))"
 end
 
@@ -294,38 +285,28 @@ macro test_unrolled(
             isdefined(code_instance(unrolled_func, $(args...)), :rettype_const)
         is_reference_const =
             isdefined(code_instance(reference_func, $(args...)), :rettype_const)
+        # Base.issingletontype(typeof(($(args...),))) && @test is_unrolled_const
 
         buffer = IOBuffer()
+
+        # Determine whether the functions are fully optimized out.
         args_type = Tuple{map(typeof, ($(args...),))...}
         code_llvm(buffer, unrolled_func, args_type; debuginfo = :none)
-        unrolled_llvm = String(take!(buffer))
+        is_unrolled_optimized_out =
+            length(split(String(take!(buffer)), '\n')) == 5
         code_llvm(buffer, reference_func, args_type; debuginfo = :none)
-        reference_llvm = String(take!(buffer))
-        code_llvm(buffer, Returns(nothing), Tuple{}; debuginfo = :none)
-        no_op_llvm = String(take!(buffer))
-
-        # Test whether the functions are compiled into switch instructions.
-        is_unrolled_switch = contains(unrolled_llvm, "switch")
-        is_reference_switch = contains(reference_llvm, "switch")
-
-        # Test whether the functions are fully optimized out.
-        unrolled_llvm_lines = length(split(unrolled_llvm, '\n'))
-        reference_llvm_lines = length(split(reference_llvm, '\n'))
-        no_op_llvm_lines = length(split(no_op_llvm, '\n'))
-        is_unrolled_no_op = unrolled_llvm_lines == no_op_llvm_lines
-        is_reference_no_op = reference_llvm_lines == no_op_llvm_lines
+        is_reference_optimized_out =
+            length(split(String(take!(buffer)), '\n')) == 5
 
         # Test the overall level of optimization.
         unrolled_opt_str, unrolled_opt_score = if unrolled_run_memory > 0
             "$(memory_string(unrolled_run_memory)) allocs", 1 / unrolled_run_memory
         elseif !is_unrolled_stable
             "type-unstable", 2
-        elseif !is_unrolled_const && !is_unrolled_switch
-            "$unrolled_llvm_lines LLVM lines", 3
-        elseif !is_unrolled_const
-            "$unrolled_llvm_lines LLVM lines w/ switch", 3 # same as no switch
-        elseif !is_unrolled_no_op
-            "$unrolled_llvm_lines LLVM lines w/ Const", 4
+        elseif !is_unrolled_const && !is_unrolled_optimized_out
+            "type-stable", 3
+        elseif !is_unrolled_optimized_out
+            "constant", 4
         else
             "optimized out", 5
         end
@@ -334,12 +315,10 @@ macro test_unrolled(
             1 / reference_run_memory
         elseif !is_reference_stable
             "type-unstable", 2
-        elseif !is_reference_const && !is_reference_switch
-            "$reference_llvm_lines LLVM lines", 3
-        elseif !is_reference_const
-            "$reference_llvm_lines LLVM lines w/ switch", 3 # same as no switch
-        elseif !is_reference_no_op
-            "$reference_llvm_lines LLVM lines w/ Const", 4
+        elseif !is_reference_const && !is_reference_optimized_out
+            "type-stable", 3
+        elseif !is_reference_optimized_out
+            "constant", 4
         else
             "optimized out", 5
         end
@@ -398,13 +377,12 @@ macro test_unrolled(
         elseif unrolled_opt_score < reference_opt_score
             "worse ($unrolled_opt_str vs. $reference_opt_str)"
         else
-            "similar ($unrolled_opt_str)"
+            "identical ($unrolled_opt_str)"
         end
         run_time_str = comparison_string(
             unrolled_run_time,
             reference_run_time,
-            time_string;
-            epsilon = 50, # Ignore differences between times shorter than 50 ns.
+            time_string,
         )
         compile_time_str = comparison_string(
             unrolled_compile_time,
@@ -416,8 +394,8 @@ macro test_unrolled(
             (reference_total_memory, reference_total_rss),
             ((gc_bytes, rss_bytes),) ->
                 rss_bytes == 0 ? memory_string(gc_bytes) :
-                "$(memory_string(gc_bytes)) [$(memory_string(rss_bytes))]";
-            to_number = first, # Use GC number since RSS might be unavailable.
+                "$(memory_string(gc_bytes)) [$(memory_string(rss_bytes))]",
+            first, # Use GC value for comparison since RSS might be unavailable.
         )
 
         dict_key = ($unrolled_expr_str, $reference_expr_str)
@@ -461,8 +439,6 @@ function tuples_of_tuples_contents_str(itrs...)
     return str
 end
 
-itr_lengths = "fast_mode" in ARGS ? (8,) : (2, 4, 8, 32, 128)
-
 # NOTE: In the tests below, random numbers are meant to emulate values that
 # cannot be inferred during compilation.
 
@@ -473,45 +449,16 @@ for itr in (
     tuple_of_tuples(1, 0, true, true),
     tuple_of_tuples(1, 1, true, true),
     tuple_of_tuples(1, 1, false, true),
-    map(n -> tuple_of_tuples(n, 1, true, true), itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 1, false, true), itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 0, true, false), itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 1, true, false), itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 1, false, false), itr_lengths)...,
+    map(n -> tuple_of_tuples(n, 0, true, true), (8, 32, 33, 128))...,
+    map(n -> tuple_of_tuples(n, 1, true, true), (8, 32, 33, 128))...,
+    map(n -> tuple_of_tuples(n, 1, false, true), (8, 32, 33, 128))...,
+    map(n -> tuple_of_tuples(n, 0, true, false), (8, 32, 33, 128))...,
+    map(n -> tuple_of_tuples(n, 1, true, false), (8, 32, 33, 128))...,
+    map(n -> tuple_of_tuples(n, 1, false, false), (8, 32, 33, 128))...,
 )
     str = tuples_of_tuples_contents_str(itr)
     itr_description = "a Tuple that contains $(length(itr)) $str"
     @testset "individual unrolled functions of $itr_description" begin
-        @test_unrolled (itr,) unrolled_push(itr, itr[1]) (itr..., itr[1]) str
-
-        @test_unrolled(
-            (itr,),
-            unrolled_append(itr, Iterators.reverse(itr)),
-            (itr..., Iterators.reverse(itr)...),
-            str,
-        )
-        @test_unrolled(
-            (itr,),
-            unrolled_prepend(itr, Iterators.reverse(itr)),
-            (Iterators.reverse(itr)..., itr...),
-            str,
-        )
-
-        @test_unrolled(
-            (itr,),
-            unrolled_take(itr, Val(length(itr) ÷ 2)),
-            itr[1:(length(itr) ÷ 2)],
-            str,
-        )
-        @test_unrolled(
-            (itr,),
-            unrolled_drop(itr, Val(length(itr) ÷ 2)),
-            itr[(length(itr) ÷ 2 + 1):end],
-            str,
-        )
-
-        @test_unrolled (itr,) unrolled_map(length, itr) map(length, itr) str
-
         @test_unrolled (itr,) unrolled_any(isempty, itr) any(isempty, itr) str
         @test_unrolled(
             (itr,),
@@ -535,6 +482,15 @@ for itr in (
             str,
         )
 
+        @test_unrolled (itr,) unrolled_map(length, itr) map(length, itr) str
+
+        @test_unrolled(
+            (itr,),
+            unrolled_applyat(length, rand(1:7:length(itr)), itr),
+            length(itr[rand(1:7:length(itr))]),
+            str,
+        )
+
         @test_unrolled (itr,) unrolled_reduce(tuple, itr) reduce(tuple, itr) str
         @test_unrolled(
             (itr,),
@@ -545,18 +501,18 @@ for itr in (
 
         @test_unrolled(
             (itr,),
-            unrolled_mapreduce(x -> (x, length(x)), tuple, itr),
-            mapreduce(x -> (x, length(x)), tuple, itr),
+            unrolled_mapreduce(length, +, itr),
+            mapreduce(length, +, itr),
             str,
         )
         @test_unrolled(
             (itr,),
-            unrolled_mapreduce(x -> (x, length(x)), tuple, itr; init = ()),
-            mapreduce(x -> (x, length(x)), tuple, itr; init = ()),
+            unrolled_mapreduce(length, +, itr; init = 0),
+            mapreduce(length, +, itr; init = 0),
             str,
         )
 
-        if length(itr) <= 32
+        if length(itr) <= 33
             @test_unrolled(
                 (itr,),
                 unrolled_accumulate(tuple, itr),
@@ -571,10 +527,19 @@ for itr in (
             )
         end # These can take half a minute to compile when the length is 128.
 
+        @test_unrolled (itr,) unrolled_push(itr, itr[1]) (itr..., itr[1]) str
+        @test_unrolled (itr,) unrolled_append(itr, itr) (itr..., itr...) str
+
         @test_unrolled(
             (itr,),
-            unrolled_applyat(length, rand(1:7:length(itr)), itr),
-            length(itr[rand(1:7:length(itr))]),
+            unrolled_take(itr, Val(length(itr) ÷ 2)),
+            itr[1:(length(itr) ÷ 2)],
+            str,
+        )
+        @test_unrolled(
+            (itr,),
+            unrolled_drop(itr, Val(length(itr) ÷ 2)),
+            itr[(length(itr) ÷ 2 + 1):end],
             str,
         )
 
@@ -584,154 +549,12 @@ for itr in (
 
         @test_unrolled(
             (itr,),
-            unrolled_unique(length, itr),
-            Tuple(unique(length, itr)),
-            str,
-        )
-        @test_unrolled(
-            (itr,),
             unrolled_unique(itr),
             Tuple(unique(itr)),
             str,
             !Base.issingletontype(typeof(itr)),
             !Base.issingletontype(typeof(itr)),
-        ) # unrolled_unique is only type-stable when comparing Core.Const data
-
-        if VERSION >= v"1.11"
-            @test_unrolled(
-                (itr,),
-                unrolled_allunique(length, itr),
-                allunique(length, itr),
-                str,
-            )
-            @test_unrolled(
-                (itr,),
-                unrolled_allequal(length, itr),
-                allequal(length, itr),
-                str,
-            )
-        else
-            @test_unrolled(
-                (itr,),
-                unrolled_allunique(length, itr),
-                allunique(Iterators.map(length, itr)),
-                str,
-            )
-            @test_unrolled(
-                (itr,),
-                unrolled_allequal(length, itr),
-                allequal(Iterators.map(length, itr)),
-                str,
-            )
-        end # allunique(f, itr) and allequal(f, itr) require at least Julia 1.11
-
-        @test_unrolled (itr,) unrolled_sum(length, itr) sum(length, itr) str
-        @test_unrolled (itr,) unrolled_prod(length, itr) prod(length, itr) str
-
-        @test_unrolled(
-            (itr,),
-            unrolled_cumsum(length, itr),
-            Tuple(cumsum(Iterators.map(length, itr))),
-            str,
-        )
-        @test_unrolled(
-            (itr,),
-            unrolled_cumprod(length, itr),
-            Tuple(cumprod(Iterators.map(length, itr))),
-            str,
-        )
-
-        @test_unrolled(
-            (itr,),
-            unrolled_count(!isempty, itr),
-            count(!isempty, itr),
-            str,
-        )
-
-        @test_unrolled(
-            (itr,),
-            unrolled_maximum(length, itr),
-            maximum(length, itr),
-            str,
-        )
-        @test_unrolled(
-            (itr,),
-            unrolled_minimum(length, itr),
-            minimum(length, itr),
-            str,
-        )
-
-        @test_unrolled(
-            (itr,),
-            unrolled_extrema(length, itr),
-            extrema(length, itr),
-            str,
-        )
-
-        @test_unrolled(
-            (itr,),
-            unrolled_findmax(length, itr),
-            findmax(length, itr),
-            str,
-        )
-        @test_unrolled(
-            (itr,),
-            unrolled_findmin(length, itr),
-            findmin(length, itr),
-            str,
-        )
-
-        @test_unrolled(
-            (itr,),
-            unrolled_argmax(length, itr),
-            argmax(length, itr),
-            str,
-        )
-        @test_unrolled(
-            (itr,),
-            unrolled_argmin(length, itr),
-            argmin(length, itr),
-            str,
-        )
-
-        @test_unrolled(
-            (itr,),
-            unrolled_argmax(unrolled_map(length, itr)),
-            argmax(Iterators.map(length, itr)),
-            str,
-        )
-        @test_unrolled(
-            (itr,),
-            unrolled_argmin(unrolled_map(length, itr)),
-            argmin(Iterators.map(length, itr)),
-            str,
-        )
-
-        @test_unrolled(
-            (itr,),
-            unrolled_findfirst(!isempty, itr),
-            findfirst(!isempty, itr),
-            str,
-        )
-        @test_unrolled(
-            (itr,),
-            unrolled_findlast(isempty, itr),
-            findlast(isempty, itr),
-            str,
-        )
-
-        @test_unrolled(
-            (itr,),
-            unrolled_argfirst(x -> length(x) >= length(itr[end]), itr),
-            itr[findfirst(x -> length(x) >= length(itr[end]), itr)],
-            str,
-        )
-        @test_unrolled(
-            (itr,),
-            unrolled_arglast(x -> length(x) >= length(itr[1]), itr),
-            itr[findlast(x -> length(x) >= length(itr[1]), itr)],
-            str,
-        )
+        ) # unrolled_unique is type-unstable for non-singleton values
 
         @test_unrolled(
             (itr,),
@@ -756,19 +579,19 @@ for itr in (
 
         @test_unrolled(
             (itr,),
-            unrolled_flatmap(Iterators.reverse, itr),
-            Tuple(Iterators.flatmap(Iterators.reverse, itr)),
+            unrolled_flatmap(reverse, itr),
+            Tuple(Iterators.flatmap(reverse, itr)),
             str,
         )
 
-        if length(itr) <= 32
+        if length(itr) <= 33
             @test_unrolled(
                 (itr,),
                 unrolled_product(itr, itr),
                 Tuple(Iterators.product(itr, itr)),
                 str,
             )
-        end # This can take several minutes to compile when the length is 128.
+        end
         if length(itr) <= 8
             @test_unrolled(
                 (itr,),
@@ -777,22 +600,6 @@ for itr in (
                 str,
             )
         end # This can take several minutes to compile when the length is 32.
-
-        if VERSION >= v"1.11"
-            @test_unrolled(
-                (itr,),
-                unrolled_cycle(itr, Val(3)),
-                Tuple(Iterators.cycle(itr, 3)),
-                str,
-            )
-        end # Iterators.cycle(itr, n) requires at least Julia 1.11
-
-        @test_unrolled(
-            (itr,),
-            unrolled_partition(itr, Val(3)),
-            Tuple(Iterators.map(Tuple, Iterators.partition(itr, 3))),
-            str,
-        )
     end
 end
 
@@ -806,14 +613,14 @@ for (itr1, itr2, itr3) in (
         tuple_of_tuples(1, 1, false, true),
     ),
     zip(
-        map(n -> tuple_of_tuples(n, 0, true, true), itr_lengths),
-        map(n -> tuple_of_tuples(n, 1, true, true), itr_lengths),
-        map(n -> tuple_of_tuples(n, 1, false, true), itr_lengths),
+        map(n -> tuple_of_tuples(n, 0, true, true), (8, 32, 33, 128)),
+        map(n -> tuple_of_tuples(n, 1, true, true), (8, 32, 33, 128)),
+        map(n -> tuple_of_tuples(n, 1, false, true), (8, 32, 33, 128)),
     )...,
     zip(
-        map(n -> tuple_of_tuples(n, 0, true, false), itr_lengths),
-        map(n -> tuple_of_tuples(n, 1, true, false), itr_lengths),
-        map(n -> tuple_of_tuples(n, 1, false, false), itr_lengths),
+        map(n -> tuple_of_tuples(n, 0, true, false), (8, 32, 33, 128)),
+        map(n -> tuple_of_tuples(n, 1, true, false), (8, 32, 33, 128)),
+        map(n -> tuple_of_tuples(n, 1, false, false), (8, 32, 33, 128)),
     )...,
 )
     str3 = tuples_of_tuples_contents_str(itr3)
@@ -824,22 +631,15 @@ for (itr1, itr2, itr3) in (
     @testset "nested unrolled functions of $itr_description" begin
         @test_unrolled(
             (itr3,),
-            unrolled_any(x -> unrolled_sum(x) > 7, itr3),
-            any(x -> sum(x) > 7, itr3),
+            unrolled_any(x -> unrolled_reduce(+, x) > 7, itr3),
+            any(x -> reduce(+, x) > 7, itr3),
             str3,
         )
 
         @test_unrolled(
             (itr3,),
-            unrolled_mapreduce(unrolled_sum, max, itr3),
-            mapreduce(sum, max, itr3),
-            str3,
-        )
-
-        @test_unrolled(
-            (itr3,),
-            unrolled_applyat(unrolled_minimum, rand(1:length(itr3)), itr3),
-            minimum(itr3[rand(1:length(itr3))]),
+            unrolled_mapreduce(x -> unrolled_reduce(+, x), max, itr3),
+            mapreduce(x -> reduce(+, x), max, itr3),
             str3,
         )
 
@@ -895,31 +695,34 @@ end
 
 nested_iterator(depth, n, inner_n) =
     depth == 1 ? ntuple(identity, n) :
-    ntuple(Returns(nested_iterator(depth - 1, n ÷ inner_n, inner_n)), inner_n)
+    ntuple(
+        Returns(nested_iterator(depth - 1, Int(n / inner_n), inner_n)),
+        inner_n,
+    )
 
 title = "Recursive Unrolled Functions"
 comparison_table_dict = (comparison_table_dicts[title] = OrderedDict())
 
-for n in itr_lengths
-    @testset "recursive unrolled functions of $n values in nested Tuples" begin
-        for depth in 2:2:(Int(log2(n)) + 1)
+for n in (8, 32, 128)
+    itr_description = "a Tuple that contains $n values in nested Tuples"
+    @testset "recursive unrolled functions of $itr_description" begin
+        for depth in (2, 3, 4:2:(Int(log2(n)) + 1)...)
             itr = nested_iterator(depth, n, 2)
-            str =
-                depth > 2 ?
-                "nested Tuples with $(n ÷ 2) values at depth $(depth - 1)" :
-                (n > 2 ? "Tuples with $(n ÷ 2) values" : "Tuples with 1 value")
+            str = "$itr_description of depth $depth"
             # In the following definitions, use var"#self#" to avoid boxing:
             # discourse.julialang.org/t/performant-recursive-anonymous-functions/90984/5
             @test_unrolled(
                 (itr,),
                 map(
                     x ->
-                        eltype(x) <: Tuple ? unrolled_sum(var"#self#", x) :
-                        length(x),
+                        eltype(x) <: Tuple ?
+                        unrolled_mapreduce(var"#self#", +, x) : length(x),
                     (itr,),
                 )[1],
                 map(
-                    x -> eltype(x) <: Tuple ? sum(var"#self#", x) : length(x),
+                    x ->
+                        eltype(x) <: Tuple ? mapreduce(var"#self#", +, x) :
+                        length(x),
                     (itr,),
                 )[1],
                 str,
@@ -928,34 +731,19 @@ for n in itr_lengths
                 (itr,),
                 map(
                     x ->
-                        eltype(x) <: Tuple ? unrolled_sum(var"#self#", x) :
-                        unrolled_sum(x),
+                        eltype(x) <: Tuple ?
+                        unrolled_mapreduce(var"#self#", +, x) :
+                        unrolled_reduce(+, x),
                     (itr,),
                 )[1],
                 map(
-                    x -> eltype(x) <: Tuple ? sum(var"#self#", x) : sum(x),
+                    x ->
+                        eltype(x) <: Tuple ? mapreduce(var"#self#", +, x) :
+                        reduce(+, x),
                     (itr,),
                 )[1],
                 str,
             ) # nested iterator sum
-            @test_unrolled(
-                (itr,),
-                map(
-                    x ->
-                        eltype(x) <: Tuple ?
-                        unrolled_sum(var"#self#", x) +
-                        unrolled_sum(log ∘ var"#self#", x) : unrolled_sum(x),
-                    (itr,),
-                )[1],
-                map(
-                    x ->
-                        eltype(x) <: Tuple ?
-                        sum(var"#self#", x) + sum(log ∘ var"#self#", x) :
-                        sum(x),
-                    (itr,),
-                )[1],
-                str,
-            ) # recursive function that is improved by unrolling on Julia 1.11
         end
     end
 end
@@ -1060,10 +848,10 @@ comparison_table_dict = (comparison_table_dicts[title] = OrderedDict())
 @testset "unrolled functions of an empty Tuple" begin
     itr = ()
     str = "nothing"
-    @test_unrolled (itr,) unrolled_map(error, itr) map(error, itr) str
     @test_unrolled (itr,) unrolled_any(error, itr) any(error, itr) str
     @test_unrolled (itr,) unrolled_all(error, itr) all(error, itr) str
     @test_unrolled (itr,) unrolled_foreach(error, itr) foreach(error, itr) str
+    @test_unrolled (itr,) unrolled_map(error, itr) map(error, itr) str
     @test_throws "init" unrolled_reduce(error, itr)
     @test_unrolled(
         (itr,),
@@ -1090,44 +878,33 @@ comparison_table_dict = (comparison_table_dicts[title] = OrderedDict())
 
 @testset "unrolled functions of Tuples vs. StaticOneTos" begin
     for itr in (ntuple(identity, 2000), StaticOneTo(2000), StaticOneTo(9000))
-        @test_unrolled (itr,) unrolled_sum(itr) sum(itr) "Ints"
-        @test_unrolled((itr,), unrolled_sum(log, itr), sum(log, itr), "Ints",)
+        @test_unrolled (itr,) unrolled_reduce(+, itr) reduce(+, itr) "Ints"
+        @test_unrolled(
+            (itr,),
+            unrolled_mapreduce(log, +, itr),
+            mapreduce(log, +, itr),
+            "Ints",
+        )
     end # These can take over a minute to compile for ntuple(identity, 9000).
 end
 
 title = "Generative vs. Recursive Unrolling"
 comparison_table_dict = (comparison_table_dicts[title] = OrderedDict())
 
-gen_vs_rec_itr_lengths = if "fast_mode" in ARGS
-    (8,)
-elseif VERSION >= v"1.11" && (Sys.iswindows() || Sys.isapple())
-    # JET sometimes throws stack overflow errors for 256 elements on Julia 1.11.
-    (1:8..., 16, 32, 128)
-else
-    (1:8..., 16, 32, 128, 256)
-end
-
 for itr in (
     tuple_of_tuples(1, 0, true, true),
     tuple_of_tuples(1, 1, true, true),
     tuple_of_tuples(1, 1, false, true),
-    map(n -> tuple_of_tuples(n, 0, true, true), gen_vs_rec_itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 1, true, true), gen_vs_rec_itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 1, false, true), gen_vs_rec_itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 0, true, false), gen_vs_rec_itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 1, true, false), gen_vs_rec_itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 1, false, false), gen_vs_rec_itr_lengths)...,
+    map(n -> tuple_of_tuples(n, 0, true, true), (8, 16, 32, 33, 128, 256))...,
+    map(n -> tuple_of_tuples(n, 1, true, true), (8, 16, 32, 33, 128, 256))...,
+    map(n -> tuple_of_tuples(n, 1, false, true), (8, 16, 32, 33, 128, 256))...,
+    map(n -> tuple_of_tuples(n, 0, true, false), (8, 16, 32, 33, 128, 256))...,
+    map(n -> tuple_of_tuples(n, 1, true, false), (8, 16, 32, 33, 128, 256))...,
+    map(n -> tuple_of_tuples(n, 1, false, false), (8, 16, 32, 33, 128, 256))...,
 )
     str = tuples_of_tuples_contents_str(itr)
     itr_description = "a Tuple that contains $(length(itr)) $str"
     @testset "generative vs. recursive unrolling of $itr_description" begin
-        @test_unrolled(
-            (itr,),
-            UnrolledUtilities.gen_unrolled_map(length, itr),
-            UnrolledUtilities.rec_unrolled_map(length, itr),
-            str,
-        )
-
         @test_unrolled(
             (itr,),
             UnrolledUtilities.gen_unrolled_any(isempty, itr),
@@ -1155,7 +932,29 @@ for itr in (
             str,
         )
 
-        if length(itr) <= 32
+        @test_unrolled(
+            (itr,),
+            UnrolledUtilities.gen_unrolled_map(length, itr),
+            UnrolledUtilities.rec_unrolled_map(length, itr),
+            str,
+        )
+
+        @test_unrolled(
+            (itr,),
+            UnrolledUtilities.gen_unrolled_applyat(
+                length,
+                rand(1:7:length(itr)),
+                itr,
+            ),
+            UnrolledUtilities.rec_unrolled_applyat(
+                length,
+                rand(1:7:length(itr)),
+                itr,
+            ),
+            str,
+        )
+
+        if length(itr) <= 33
             @test_unrolled(
                 (itr,),
                 UnrolledUtilities.gen_unrolled_reduce(tuple, itr, ()),
@@ -1165,8 +964,18 @@ for itr in (
 
             @test_unrolled(
                 (itr,),
-                UnrolledUtilities.gen_unrolled_accumulate(tuple, itr, ()),
-                UnrolledUtilities.rec_unrolled_accumulate(tuple, itr, ()),
+                UnrolledUtilities.gen_unrolled_accumulate(
+                    tuple,
+                    itr,
+                    (),
+                    identity,
+                ),
+                UnrolledUtilities.rec_unrolled_accumulate(
+                    tuple,
+                    itr,
+                    (),
+                    identity,
+                ),
                 str,
             )
         end # These can take over a minute to compile when the length is 128.

@@ -4,9 +4,6 @@ CurrentModule = UnrolledUtilities
 
 ```@setup inference_test
 using UnrolledUtilities, InteractiveUtils, Test
-nonuniform_itr = ((1, 2), (1, 2, 3));
-nested_itr_of_depth_2 = ((1, 2), (3, 4));
-nested_itr_of_depth_3 = (((1,), (2,)), ((3,), (4,)));
 ```
 
 # When to Use UnrolledUtilities
@@ -51,19 +48,23 @@ Depth = 2:3
 
 ### Iterators with elements of different types
 
-- `in`, `any`, `all`, `foreach`, and other functions in `Base` have intermediate
-  type instabilities that trigger allocations for nonuniform iterators:
+- `in` has an intermediate type instability that triggers allocations for
+  nonuniform iterators:
 
   ```@repl inference_test
-  nonuniform_itr = ((1, 2), (1, 2, 3));
-  () in nonuniform_itr # hide
-  @allocated () in nonuniform_itr
-  unrolled_in((), nonuniform_itr) # hide
-  @allocated unrolled_in((), nonuniform_itr)
-  any(isempty, nonuniform_itr) # hide
-  @allocated any(isempty, nonuniform_itr)
-  unrolled_any(isempty, nonuniform_itr) # hide
-  @allocated unrolled_any(isempty, nonuniform_itr)
+  @allocated () in ((1, 2), (1, 2, 3))
+  @allocated unrolled_in((), ((1, 2), (1, 2, 3)))
+  ```
+
+- `any`, `all`, and `foreach` have intermediate type instabilities that trigger
+  allocations for nonuniform iterators with lengths greater than 32:
+
+  ```@repl inference_test
+  const nonuniform_itr_of_length_32 = (ntuple(Returns((1, 2)), 31)..., (1, 2, 3));
+  const nonuniform_itr_of_length_33 = (ntuple(Returns((1, 2)), 32)..., (1, 2, 3));
+  @allocated any(isempty, nonuniform_itr_of_length_32)
+  @allocated any(isempty, nonuniform_itr_of_length_33)
+  @allocated unrolled_any(isempty, nonuniform_itr_of_length_33)
   ```
 
 - `getindex` has an unstable return type for nonuniform iterators when given
@@ -77,16 +78,16 @@ Depth = 2:3
           length_sum += length(itr[n])
       end
   end
-  add_lengths(nonuniform_itr) # hide
-  @allocated add_lengths(nonuniform_itr)
+  add_lengths(((1, 2), (1, 2, 3))) # hide
+  @allocated add_lengths(((1, 2), (1, 2, 3)))
   function unrolled_add_lengths(itr)
       length_sum = 0
       for n in 1:length(itr)
           length_sum += unrolled_applyat(length, n, itr)
       end
   end
-  unrolled_add_lengths(nonuniform_itr) # hide
-  @allocated unrolled_add_lengths(nonuniform_itr)
+  unrolled_add_lengths(((1, 2), (1, 2, 3))) # hide
+  @allocated unrolled_add_lengths(((1, 2), (1, 2, 3)))
   ```
 
   !!! note "Note"
@@ -116,30 +117,27 @@ Depth = 2:3
   !!! tip "Tip"
       ##### *When should `getindex` be replaced with `unrolled_applyat`?*
 
-      The specific example above can be simplified by using `unrolled_sum`,
+      The specific example above could be simplified by using `mapreduce`,
       instead of using a `for`-loop in conjunction with `unrolled_applyat`:
 
-      ```@repl inference_test
-      nonuniform_itr = ((1, 2), (1, 2, 3));
-      unrolled_sum(length, nonuniform_itr) # hide
-      @allocated unrolled_sum(length, nonuniform_itr)
+      ```@repl
+      @allocated mapreduce(length, +, ((1, 2), (1, 2, 3)))
       ```
 
-      However, there are often situations in which loops cannot be replaced with
-      function calls, such as when the loops are parallelized over multiple
-      threads. For example, since CUDA is unable to compile kernels with type
-      instabilities, something like the switch instruction in `unrolled_applyat`
-      is *required* in order to parallelize over nonuniform iterators on GPUs.
+      However, there are often situations in which it is not possible to
+      replace loops with function calls, like when those loops are parallelized
+      over CPU or GPU threads. Moreover, CUDA is unable to compile any kernels
+      with type instabilities that trigger allocations, so `unrolled_applyat` is
+      *required* in order to parallelize over nonuniform iterators on GPUs.
 
 - For benchmarks that indicate performance improvements when using unrolled
   functions with nonuniform iterators, see [Isolated Unrolled Functions](@ref)
   and [Nested Unrolled Functions](@ref)
 
-### Reductions with intermediate values of different types
+### Reduction operations with non-constant return types
 
 - `reduce` and `accumulate` have unstable return types when the return type of
-  the reduction operator is not constant, but only for iterators with lengths
-  greater than 32:
+  `op` is not constant, but only for iterator lengths greater than 32:
 
   ```@repl inference_test
   Test.@inferred reduce(tuple, Tuple(1:32));
@@ -150,66 +148,34 @@ Depth = 2:3
 - For benchmarks that indicate performance improvements when using unrolled
   functions with nonuniform reductions, see [Isolated Unrolled Functions](@ref)
 
-### Functions with recursion during compilation
+### Operations with more than 2 levels of recursion
 
-- Any function that recursively calls itself with different types of arguments
-  can trigger a compilation heuristic called the "recursion limit", which causes
-  the compiler to generate code with type instabilities and allocations
-  
-  - Before Julia 1.11, the default recursion limit applied to every function
-    with at least 3 levels of recursion during compilation, including relatively
-    simple functions like an analogue of `length` for nested `Tuple`s:
+- All functions in Julia have a default "recursion limit" of 2; unless this
+  limit is modified, it forces any function that recursively calls itself 2 or
+  more times to have an unstable return type:
 
-    ```@repl inference_test
-    nested_itr_of_depth_2 = ((1, 2), (3, 4));
-    nested_itr_of_depth_3 = (((1,), (2,)), ((3,), (4,)));
-    recursive_length(itr) =
-        eltype(itr) <: Tuple ? sum(recursive_length, itr) : length(itr)
-    Test.@inferred recursive_length(nested_itr_of_depth_2);
-    Test.@inferred recursive_length(nested_itr_of_depth_3);
-    ```
-  
-  - As of Julia 1.11, the default recursion limit is no longer triggered for
-    this simple example, but still applies to more complex recursive functions:
-
-    ```@repl inference_test
-    recursive_sum_with_logs(itr) =
-        eltype(itr) <: Tuple ?
-        sum(recursive_sum_with_logs, itr) +
-        sum(log ∘ recursive_sum_with_logs, itr) :
-        sum(itr)
-    Test.@inferred recursive_sum_with_logs(nested_itr_of_depth_2);
-    Test.@inferred recursive_sum_with_logs(nested_itr_of_depth_3);
-    unrolled_recursive_sum_with_logs(itr) =
-        eltype(itr) <: Tuple ?
-        unrolled_sum(unrolled_recursive_sum_with_logs, itr) +
-        unrolled_sum(log ∘ unrolled_recursive_sum_with_logs, itr) :
-        unrolled_sum(itr)
-    Test.@inferred unrolled_recursive_sum_with_logs(nested_itr_of_depth_3);
-    ```
+  ```@repl inference_test
+  recursive_length(itr) =
+      eltype(itr) <: Tuple ? mapreduce(recursive_length, +, itr) : length(itr)
+  Test.@inferred recursive_length(((1, 2), (1, 2, 3)));
+  Test.@inferred recursive_length((((1,), (2,)), (1, 2, 3)));
+  unrolled_recursive_length(itr) =
+      eltype(itr) <: Tuple ?
+      unrolled_mapreduce(unrolled_recursive_length, +, itr) : length(itr)
+  Test.@inferred unrolled_recursive_length((((1,), (2,)), (1, 2, 3)));
+  ```
 
   !!! note "Note"
-      ##### *How can the default recursion limit be avoided?*
+      ##### *Is there any other way to avoid the default recursion limit?*
 
-      The recursion limit of any function `f` can be disabled by evaluating the
-      following code in the module where `f` is defined:
-
-      ```julia
-      @static if hasfield(Method, :recursion_relation)
-          for method in methods(f)
-              method.recursion_relation = Returns(true)
-          end
-      end
-      ```
-
-      However, the recursion limits of functions defined in `Base` cannot be
-      modified from any module outside of `Base`. Since the default limit
-      applies to all functions from `Base`, they can have unstable return types
-      whenever they need more than 2 levels of recursion for compilation, even
-      if the user-defined functions passed to them have no recursion limits. The
-      only way to avoid the default limit of a function from `Base` is to
-      replace it with a function whose limit has been disabled (such as an
-      analogous function from `UnrolledUtilities`).
+      The default recursion limit applies to all functions defined in `Base` and
+      `Base.Iterators`, so those functions will have unstable return types for
+      more than 2 levels of recursion, even when all user-defined functions
+      passed to them have had their recursion limits disabled. It is also
+      impossible to modify the recursion limits of functions defined in `Base`
+      from external packages. This means that the only way to avoid the default
+      recursion limit is to not use certain functions from `Base`, and instead
+      to define alternatives without any recursion limits.
 
 - For benchmarks that indicate performance improvements when using unrolled
   functions with recursive operations, see [Recursive Unrolled Functions](@ref)

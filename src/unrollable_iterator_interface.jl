@@ -3,28 +3,24 @@
 
 Whether to use recursive loop unrolling instead of generative loop unrolling for
 the iterator `itr`. Recursive unrolling can lead to suboptimal LLVM code for
-iterators of more than 32 items, but it is typically faster than generative
-unrolling for short iterators. By default, recursive unrolling is used for
-iterators up to length 2, and generative unrolling is used for longer iterators.
+iterators of more than 32 items, so this is set to `false` by default.
 """
-@inline rec_unroll(itr) = length(itr) <= 2
+@inline rec_unroll(itr) = false
 
 """
     generic_getindex(itr, n)
 
 Identical to `getindex(itr, n)`, but with the added ability to handle lazy
 iterator types defined in the standard library, such as `Base.Generator` and
-`Iterators.Enumerate`.
+`Base.Iterators.Enumerate`.
 """
 @inline generic_getindex(itr, n) = getindex(itr, n)
 @inline generic_getindex(itr::Base.Generator, n) =
     itr.f(generic_getindex(itr.iter, n))
-@inline generic_getindex(itr::Iterators.Reverse, n) =
-    generic_getindex(itr.itr, length(itr.itr) - n + 1)
-@inline generic_getindex(itr::Iterators.Enumerate, n) =
+@inline generic_getindex(itr::Base.Iterators.Enumerate, n) =
     (n, generic_getindex(itr.itr, n))
-@inline generic_getindex(itr::Iterators.Zip, n) =
-    unrolled_map(Base.Fix2(generic_getindex, n), itr.is)
+@inline generic_getindex(itr::Base.Iterators.Zip, n) =
+    unrolled_map_into_tuple(Base.Fix2(generic_getindex, n), itr.is)
 
 @inline first_item_type(itr) =
     Base.promote_op(Base.Fix2(generic_getindex, 1), typeof(itr))
@@ -44,12 +40,10 @@ lazy iterator without any associated output type. Defaults to `Tuple`.
     NamedTuple{names}
 @inline output_type_for_promotion(itr::Base.Generator) =
     output_type_for_promotion(itr.iter)
-@inline output_type_for_promotion(itr::Iterators.Reverse) =
+@inline output_type_for_promotion(itr::Base.Iterators.Enumerate) =
     output_type_for_promotion(itr.itr)
-@inline output_type_for_promotion(itr::Iterators.Enumerate) =
-    output_type_for_promotion(itr.itr)
-@inline output_type_for_promotion(itr::Iterators.Zip) =
-    maybe_ambiguous_promoted_output_type(itr.is...)
+@inline output_type_for_promotion(itr::Base.Iterators.Zip) =
+    maybe_ambiguous_promoted_output_type(itr.is)
 
 """
     AmbiguousOutputType
@@ -131,7 +125,7 @@ default result for all other pairs of unequal output types is `Union{}`.
            $O12 for $O1 followed by $O2, versus $O21 for $O2 followed by $O1")
 end
 
-@inline maybe_ambiguous_promoted_output_type(itrs...) =
+@inline maybe_ambiguous_promoted_output_type(itrs) =
     isempty(itrs) ? Tuple : # Generate a Tuple when given 0 inputs.
     unrolled_mapreduce(output_type_for_promotion, output_promote_result, itrs)
 
@@ -140,23 +134,35 @@ end
         @inline
         first_item_type(itr)
     end
+@inline inferred_output_type(itr::Base.Generator) =
+    unambiguous_output_type(output_type_for_promotion(itr.iter)) do
+        @inline
+        Base.promote_op(itr.f, first_item_type(itr.iter))
+    end
+@inline inferred_output_type(itr::Base.Iterators.Enumerate) =
+    unambiguous_output_type(output_type_for_promotion(itr.itr)) do
+        @inline
+        Tuple{Int, first_item_type(itr.itr)}
+    end
+@inline inferred_output_type(itr::Base.Iterators.Zip) =
+    unambiguous_output_type(maybe_ambiguous_promoted_output_type(itr.is)) do
+        @inline
+        Tuple{unrolled_map_into_tuple(first_item_type, itr.is)...}
+    end
 
-@inline promoted_output_type(itrs...) =
-    unambiguous_output_type(maybe_ambiguous_promoted_output_type(itrs...)) do
+@inline promoted_output_type(itrs) =
+    unambiguous_output_type(maybe_ambiguous_promoted_output_type(itrs)) do
         @inline
         first_item_type(generic_getindex(itrs, 1))
     end
 
-@inline unrolled_map_output_type(f, itr) =
-    inferred_output_type(Iterators.map(f, itr))
-
-@inline unrolled_accumulate_output_type(op, itr, init) =
+@inline accumulate_output_type(op, itr, init, transform) =
     unambiguous_output_type(output_type_for_promotion(itr)) do
         @inline
         no_init = init isa NoInit
         arg1_type = no_init ? first_item_type(itr) : typeof(init)
         arg2_type = no_init ? second_item_type(itr) : first_item_type(itr)
-        Base.promote_op(op, arg1_type, arg2_type)
+        Base.promote_op(transform, Base.promote_op(op, arg1_type, arg2_type))
     end
 
 """
@@ -189,5 +195,4 @@ An empty output of type `output_type`. Defaults to applying the
 
 @inline inferred_empty(itr) = empty_output(inferred_output_type(itr))
 
-# This makes lazy iterators non-lazy, and it is a no-op for non-lazy iterators.
-@inline non_lazy_iterator(itr) = unrolled_append(itr, inferred_empty(itr))
+@inline promoted_empty(itrs) = empty_output(promoted_output_type(itrs))
