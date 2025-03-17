@@ -89,6 +89,7 @@ iterators (in terms of both performance and compilation time):
 
 In addition, this package exports several functions that do not have analogues
 in `Base` or `Base.Iterators`:
+- `unrolled_mapcall(f, op, itrs...)`—similar to `op(map(f, itrs...)...)`
 - `unrolled_applyat(f, n, itrs...)`—similar to `f(itrs[1][n], itrs[2][n], ...)`
 - `unrolled_argfirst(f, itr)`—similar to `itr[findfirst(f, itr)]`
 - `unrolled_arglast(f, itr)`—similar to `itr[findlast(f, itr)]`

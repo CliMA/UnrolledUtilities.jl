@@ -523,6 +523,15 @@ for itr in (
             str,
         )
 
+        if length(itr) <= 32
+            @test_unrolled(
+                (itr,),
+                unrolled_mapcall(length, +, itr),
+                +(map(length, itr)...),
+                str,
+            )
+        end # + is only type-stable up to 32 arguments
+
         @test_unrolled (itr,) unrolled_map(length, itr) map(length, itr) str
 
         @test_unrolled (itr,) unrolled_any(isempty, itr) any(isempty, itr) str
@@ -1139,15 +1148,27 @@ for itr in (
     str = tuples_of_tuples_contents_str(itr)
     itr_description = "a Tuple that contains $(length(itr)) $str"
     @testset "manual vs. recursive unrolling of $itr_description" begin
+        if length(itr) <= 32
+            @test_unrolled(
+                (itr,),
+                unrolled_mapcall(length, +, itr),
+                rec_unrolled_mapcall(length, +, itr),
+                str,
+                false,
+                false,
+                true,
+            )
+        end # + is only type-stable up to 32 arguments
+
         @test_unrolled(
             (itr,),
-            UnrolledUtilities.unrolled_map_into_tuple(length, itr),
-            rec_unrolled_map(length, itr),
+            unrolled_mapcall(length, tuple, itr),
+            rec_unrolled_mapcall(length, tuple, itr),
             str,
             false,
             false,
             true,
-        )
+        ) # unrolled_map(length, itr)
 
         @test_unrolled(
             (itr,),

@@ -1,14 +1,15 @@
-@inline _unrolled_map(::Val{0}, f, itr) = ()
-@inline _unrolled_map(::Val{1}, f, itr) = (f(generic_getindex(itr, 1)),)
-@inline _unrolled_map(::Val{2}, f, itr) =
-    (f(generic_getindex(itr, 1)), f(generic_getindex(itr, 2)))
-@inline _unrolled_map(::Val{3}, f, itr) = (
+@inline _unrolled_mapcall(::Val{0}, f, op, itr) = op()
+@inline _unrolled_mapcall(::Val{1}, f, op, itr) =
+    op(f(generic_getindex(itr, 1)))
+@inline _unrolled_mapcall(::Val{2}, f, op, itr) =
+    op(f(generic_getindex(itr, 1)), f(generic_getindex(itr, 2)))
+@inline _unrolled_mapcall(::Val{3}, f, op, itr) = op(
     f(generic_getindex(itr, 1)),
     f(generic_getindex(itr, 2)),
     f(generic_getindex(itr, 3)),
 )
-@generated _unrolled_map(::Val{N}, f, itr) where {N} =
-    :(@inline Base.Cartesian.@ntuple $N n -> f(generic_getindex(itr, n)))
+@generated _unrolled_mapcall(::Val{N}, f, op, itr) where {N} =
+    :(@inline Base.Cartesian.@ncall $N op n -> f(generic_getindex(itr, n)))
 
 @inline _unrolled_any(::Val{0}, f, itr) = false
 @inline _unrolled_any(::Val{1}, f, itr) = f(generic_getindex(itr, 1))
