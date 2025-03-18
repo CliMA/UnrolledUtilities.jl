@@ -3,7 +3,7 @@ using UnrolledUtilities: NoInit, generic_getindex, unrolled_drop
 @inline _rec_unrolled_map(f) = ()
 @inline _rec_unrolled_map(f, item, items...) =
     (f(item), _rec_unrolled_map(f, items...)...)
-@inline rec_unrolled_map(f, itr) = _rec_unrolled_map(f, itr...)
+@inline rec_unrolled_mapcall(f, op, itr) = op(_rec_unrolled_map(f, itr...)...)
 
 @inline _rec_unrolled_any(f) = false
 @inline _rec_unrolled_any(f, item, items...) =

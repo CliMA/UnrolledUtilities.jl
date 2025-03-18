@@ -8,6 +8,7 @@ export StaticSequence,
     unrolled_prepend,
     unrolled_take,
     unrolled_drop,
+    unrolled_mapcall,
     unrolled_map,
     unrolled_any,
     unrolled_all,
@@ -147,17 +148,18 @@ include("StaticBitVector.jl")
 
 include("manually_unrolled_functions.jl")
 
+@inline unrolled_mapcall(f::F, op::O, itr) where {F, O} =
+    _unrolled_mapcall(Val(length(itr)), f, op, itr)
+@inline unrolled_mapcall(f::F, op::O, itrs...) where {F, O} =
+    unrolled_mapcall(splat(f), op, zip(itrs...))
+
 # The unrolled_map function could also be implemented in terms of ntuple, but
 # then it would be subject to the same recursion limit as ntuple. On Julia 1.10,
 # this leads to type instabilities in several unit tests for nested iterators.
-@inline unrolled_map_into_tuple(f::F, itr) where {F} =
-    _unrolled_map(Val(length(itr)), f, itr)
-@inline unrolled_map_into(output_type, f::F, itr) where {F} =
-    constructor_from_tuple(output_type)(unrolled_map_into_tuple(f, itr))
-@inline unrolled_map(f::F, itr) where {F} =
-    unrolled_map_into(inferred_output_type(Iterators.map(f, itr)), f, itr)
+@inline unrolled_map_into(output_type, f::F, itrs...) where {F} =
+    constructor_from_tuple(output_type)(unrolled_mapcall(f, tuple, itrs...))
 @inline unrolled_map(f::F, itrs...) where {F} =
-    unrolled_map(splat(f), zip(itrs...))
+    unrolled_map_into(unrolled_map_output_type(f, itrs...), f, itrs...)
 
 @inline unrolled_any(itr) = unrolled_any(identity, itr)
 @inline unrolled_any(f::F, itr) where {F} =
