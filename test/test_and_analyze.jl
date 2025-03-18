@@ -5,6 +5,7 @@ using PrettyTables
 using InteractiveUtils
 
 using UnrolledUtilities
+include("recursively_unrolled_functions.jl")
 
 comparison_table_dicts = OrderedDict()
 
@@ -238,6 +239,7 @@ macro test_unrolled(
     itr_contents_str,
     skip_allocations_test = false,
     skip_type_stability_test = false,
+    load_recursively_unrolled_functions = false,
 )
     @assert Meta.isexpr(args_expr, :tuple)
     arg_names = args_expr.args
@@ -358,13 +360,19 @@ macro test_unrolled(
         # Measure the compilation times and memory allocations in separate
         # processes to ensure that they are not under-counted.
         arg_name_strs = ($(map(string, arg_names)...),)
-        arg_names_str = join(arg_name_strs, ", ")
         arg_definition_strs =
             map((name, value) -> "$name = $value", arg_name_strs, ($(args...),))
         arg_definitions_str = join(arg_definition_strs, '\n')
+        recursively_unrolled_functions_file_path = escape_string(
+            joinpath(@__DIR__, "recursively_unrolled_functions.jl"),
+        )
+        load_recursively_unrolled_functions_str =
+            $load_recursively_unrolled_functions ?
+            "include(\"$recursively_unrolled_functions_file_path\")" : ""
         command_str(func_str) = """
             using UnrolledUtilities
             $arg_definitions_str
+            $load_recursively_unrolled_functions_str
             Base.cumulative_compile_timing(true)
             nanoseconds1 = Base.cumulative_compile_time_ns()[1]
             rss_bytes_1 = Sys.maxrss()
@@ -1105,10 +1113,10 @@ comparison_table_dict = (comparison_table_dicts[title] = OrderedDict())
     end # These can take over a minute to compile for ntuple(identity, 9000).
 end
 
-title = "Generative vs. Recursive Unrolling"
+title = "Manual vs. Recursive Unrolling"
 comparison_table_dict = (comparison_table_dicts[title] = OrderedDict())
 
-gen_vs_rec_itr_lengths = if "fast_mode" in ARGS
+man_vs_rec_itr_lengths = if "fast_mode" in ARGS
     (8,)
 elseif VERSION >= v"1.11" && (Sys.iswindows() || Sys.isapple())
     # JET sometimes throws stack overflow errors for 256 elements on Julia 1.11.
@@ -1121,64 +1129,122 @@ for itr in (
     tuple_of_tuples(1, 0, true, true),
     tuple_of_tuples(1, 1, true, true),
     tuple_of_tuples(1, 1, false, true),
-    map(n -> tuple_of_tuples(n, 0, true, true), gen_vs_rec_itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 1, true, true), gen_vs_rec_itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 1, false, true), gen_vs_rec_itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 0, true, false), gen_vs_rec_itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 1, true, false), gen_vs_rec_itr_lengths)...,
-    map(n -> tuple_of_tuples(n, 1, false, false), gen_vs_rec_itr_lengths)...,
+    map(n -> tuple_of_tuples(n, 0, true, true), man_vs_rec_itr_lengths)...,
+    map(n -> tuple_of_tuples(n, 1, true, true), man_vs_rec_itr_lengths)...,
+    map(n -> tuple_of_tuples(n, 1, false, true), man_vs_rec_itr_lengths)...,
+    map(n -> tuple_of_tuples(n, 0, true, false), man_vs_rec_itr_lengths)...,
+    map(n -> tuple_of_tuples(n, 1, true, false), man_vs_rec_itr_lengths)...,
+    map(n -> tuple_of_tuples(n, 1, false, false), man_vs_rec_itr_lengths)...,
 )
     str = tuples_of_tuples_contents_str(itr)
     itr_description = "a Tuple that contains $(length(itr)) $str"
-    @testset "generative vs. recursive unrolling of $itr_description" begin
+    @testset "manual vs. recursive unrolling of $itr_description" begin
         @test_unrolled(
             (itr,),
-            UnrolledUtilities.gen_unrolled_map(length, itr),
-            UnrolledUtilities.rec_unrolled_map(length, itr),
+            UnrolledUtilities.unrolled_map_into_tuple(length, itr),
+            rec_unrolled_map(length, itr),
             str,
+            false,
+            false,
+            true,
         )
 
         @test_unrolled(
             (itr,),
-            UnrolledUtilities.gen_unrolled_any(isempty, itr),
-            UnrolledUtilities.rec_unrolled_any(isempty, itr),
+            unrolled_any(isempty, itr),
+            rec_unrolled_any(isempty, itr),
             str,
+            false,
+            false,
+            true,
         )
 
         @test_unrolled(
             (itr,),
-            UnrolledUtilities.gen_unrolled_all(isempty, itr),
-            UnrolledUtilities.rec_unrolled_all(isempty, itr),
+            unrolled_all(isempty, itr),
+            rec_unrolled_all(isempty, itr),
             str,
+            false,
+            false,
+            true,
         )
 
         @test_unrolled(
             (itr,),
-            UnrolledUtilities.gen_unrolled_foreach(
-                x -> @assert(length(x) <= 7),
-                itr,
-            ),
-            UnrolledUtilities.rec_unrolled_foreach(
-                x -> @assert(length(x) <= 7),
-                itr,
-            ),
+            unrolled_foreach(x -> @assert(length(x) <= 7), itr),
+            rec_unrolled_foreach(x -> @assert(length(x) <= 7), itr),
             str,
+            false,
+            false,
+            true,
         )
 
         if length(itr) <= 32
             @test_unrolled(
                 (itr,),
-                UnrolledUtilities.gen_unrolled_reduce(tuple, itr, ()),
-                UnrolledUtilities.rec_unrolled_reduce(tuple, itr, ()),
+                unrolled_reduce(tuple, itr, ()),
+                rec_unrolled_reduce(tuple, itr, ()),
                 str,
+                false,
+                false,
+                true,
             )
 
             @test_unrolled(
                 (itr,),
-                UnrolledUtilities.gen_unrolled_accumulate(tuple, itr, ()),
-                UnrolledUtilities.rec_unrolled_accumulate(tuple, itr, ()),
+                UnrolledUtilities.unrolled_accumulate_into_tuple(
+                    tuple,
+                    itr,
+                    (),
+                ),
+                rec_unrolled_accumulate(tuple, itr, ()),
                 str,
+                false,
+                false,
+                true,
             )
         end # These can take over a minute to compile when the length is 128.
+
+        @test_unrolled(
+            (itr,),
+            UnrolledUtilities.unrolled_ifelse(
+                x -> length(x) >= length(itr[end]),
+                identity,
+                error,
+                itr,
+            ),
+            rec_unrolled_ifelse(
+                x -> length(x) >= length(itr[end]),
+                identity,
+                error,
+                itr,
+            ),
+            str,
+            false,
+            false,
+            true,
+        ) # unrolled_argfirst(x -> length(x) >= length(itr[end]), itr)
+
+        @test_unrolled(
+            (itr,),
+            UnrolledUtilities.unrolled_ifelse(
+                !isempty,
+                identity,
+                Returns(nothing),
+                itr,
+                StaticOneTo(length(itr)),
+            ),
+            rec_unrolled_ifelse(
+                !isempty,
+                identity,
+                Returns(nothing),
+                itr,
+                StaticOneTo(length(itr)),
+            ),
+            str,
+            false,
+            false,
+            true,
+        ) # unrolled_findfirst(!isempty, itr)
     end
 end

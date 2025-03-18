@@ -1,5 +1,4 @@
-# TODO: Replace all of these with manually unrolled functions, which should be
-# faster to compile. That is the pattern used in Base for ntuple, map, etc.
+using UnrolledUtilities: NoInit, generic_getindex, unrolled_drop
 
 @inline _rec_unrolled_map(f) = ()
 @inline _rec_unrolled_map(f, item, items...) =
@@ -53,11 +52,4 @@
     f(item1) ? get_if(item2) :
     _rec_unrolled_ifelse2(f, get_if, get_else, items...)
 @inline rec_unrolled_ifelse(f, get_if, get_else, itr1, itr2) =
-    _rec_unrolled_ifelse2(f, get_if, get_else, _unrolled_zip(itr1, itr2)...)
-# Using zip here triggers the recursion limit for one unit test on Julia 1.10.
-
-@inline _unrolled_zip(itr1, itr2) =
-    ntuple(Val(min(length(itr1), length(itr2)))) do n
-        @inline
-        (generic_getindex(itr1, n), generic_getindex(itr2, n))
-    end
+    _rec_unrolled_ifelse2(f, get_if, get_else, zip(itr1, itr2)...)

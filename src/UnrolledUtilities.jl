@@ -53,6 +53,14 @@ include("unrollable_iterator_interface.jl")
 # Analogue of the non-public Base._InitialValue for reduction and accumulation.
 struct NoInit end
 
+@inline empty_reduction_value(::NoInit) =
+    error("unrolled_reduce requires an init value for empty iterators")
+@inline empty_reduction_value(init) = init
+
+@inline first_reduction_value(op, itr, ::NoInit) = generic_getindex(itr, 1)
+@inline first_reduction_value(op, itr, init) =
+    op(init, generic_getindex(itr, 1))
+
 # Analogue of ∘, but with only one function argument and guaranteed inlining.
 # Base's ∘ leads to type instabilities in unit tests on Julia 1.10 and 1.11.
 @inline ⋅(f1::F1, f2::F2) where {F1, F2} = x -> (@inline f1(f2(x)))
@@ -134,17 +142,16 @@ include("StaticBitVector.jl")
     unrolled_drop_into(inferred_output_type(itr), itr, val_N)
 
 ##
-## Functions unrolled using either recursion or generated expressions
+## Functions unrolled using either hard-coded or generated expressions
 ##
 
-include("recursively_unrolled_functions.jl")
-include("generatively_unrolled_functions.jl")
+include("manually_unrolled_functions.jl")
 
 # The unrolled_map function could also be implemented in terms of ntuple, but
 # then it would be subject to the same recursion limit as ntuple. On Julia 1.10,
 # this leads to type instabilities in several unit tests for nested iterators.
 @inline unrolled_map_into_tuple(f::F, itr) where {F} =
-    (rec_unroll(itr) ? rec_unrolled_map : gen_unrolled_map)(f, itr)
+    _unrolled_map(Val(length(itr)), f, itr)
 @inline unrolled_map_into(output_type, f::F, itr) where {F} =
     constructor_from_tuple(output_type)(unrolled_map_into_tuple(f, itr))
 @inline unrolled_map(f::F, itr) where {F} =
@@ -154,20 +161,18 @@ include("generatively_unrolled_functions.jl")
 
 @inline unrolled_any(itr) = unrolled_any(identity, itr)
 @inline unrolled_any(f::F, itr) where {F} =
-    (rec_unroll(itr) ? rec_unrolled_any : gen_unrolled_any)(f, itr)
+    _unrolled_any(Val(length(itr)), f, itr)
 
 @inline unrolled_all(itr) = unrolled_all(identity, itr)
 @inline unrolled_all(f::F, itr) where {F} =
-    (rec_unroll(itr) ? rec_unrolled_all : gen_unrolled_all)(f, itr)
+    _unrolled_all(Val(length(itr)), f, itr)
 
 @inline unrolled_foreach(f::F, itr) where {F} =
-    (rec_unroll(itr) ? rec_unrolled_foreach : gen_unrolled_foreach)(f, itr)
+    _unrolled_foreach(Val(length(itr)), f, itr)
 @inline unrolled_foreach(f, itrs...) = unrolled_foreach(splat(f), zip(itrs...))
 
 @inline unrolled_reduce(op::O, itr, init) where {O} =
-    isempty(itr) && init isa NoInit ?
-    error("unrolled_reduce requires an init value for empty iterators") :
-    (rec_unroll(itr) ? rec_unrolled_reduce : gen_unrolled_reduce)(op, itr, init)
+    _unrolled_reduce(Val(length(itr)), op, itr, init)
 @inline unrolled_reduce(op::O, itr; init = NoInit()) where {O} =
     unrolled_reduce(op, itr, init)
 
@@ -175,11 +180,7 @@ include("generatively_unrolled_functions.jl")
     unrolled_reduce(op, unrolled_map(f, itrs...), init)
 
 @inline unrolled_accumulate_into_tuple(op::O, itr, init) where {O} =
-    (rec_unroll(itr) ? rec_unrolled_accumulate : gen_unrolled_accumulate)(
-        op,
-        itr,
-        init,
-    )
+    _unrolled_accumulate(Val(length(itr)), op, itr, init)
 @inline unrolled_accumulate_into(output_type, op::O, itr, init) where {O} =
     constructor_from_tuple(output_type)(
         unrolled_accumulate_into_tuple(op, itr, init),
@@ -209,13 +210,7 @@ include("generatively_unrolled_functions.jl")
     itr,
     itrs...,
 ) where {F, I, E} =
-    (rec_unroll(itr) ? rec_unrolled_ifelse : gen_unrolled_ifelse)(
-        f,
-        get_if,
-        get_else,
-        itr,
-        itrs...,
-    )
+    _unrolled_ifelse(Val(length(itr)), f, get_if, get_else, itr, itrs...)
 
 ##
 ## Unrolled functions without any analogues in Base

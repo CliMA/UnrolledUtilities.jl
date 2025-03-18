@@ -5,7 +5,7 @@ CurrentModule = UnrolledUtilities
 ## How to Unroll
 
 There are two general ways to implement loop unrolling in Julia—recursively
-splatting iterator contents and manually generating unrolled expressions. For
+splatting iterator contents and manually constructing unrolled expressions. For
 example, a recursively unrolled version of the `foreach` function is
 
 ```julia
@@ -14,7 +14,7 @@ _unrolled_foreach(f) = nothing
 _unrolled_foreach(f, item, items...) = (f(item); _unrolled_foreach(f, items...))
 ```
 
-In contrast, a generatively unrolled implementation of this function looks like
+In contrast, a manually unrolled implementation of this function looks like
 
 ```julia
 unrolled_foreach(f, itr) = _unrolled_foreach(Val(length(itr)), f, itr)
@@ -22,15 +22,34 @@ unrolled_foreach(f, itr) = _unrolled_foreach(Val(length(itr)), f, itr)
     Expr(:block, (:(f(generic_getindex(itr, $n))) for n in 1:N)..., nothing)
 ```
 
-To switch between recursive and generative unrolling, this package defines the
-following function:
+Julia's compiler can only pass up to 32 values through function arguments
+without allocating heap memory, so recursive unrolling is not type-stable for
+iterators with lengths greater than 32. However, automatically generating
+functions often requires more time and memory resources during compilation than
+writing hard-coded functions. Recursive inlining adds overhead to compilation
+as well, but this is typically smaller than the overhead of generated functions
+for short iterators. To avoid sacrificing latency by using generated functions,
+several hard-coded methods can be added to the manually unrolled implementation:
 
-```@docs
-rec_unroll
+```julia
+_unrolled_foreach(::Val{0}, f, itr) = nothing
+_unrolled_foreach(::Val{1}, f, itr) = (f(generic_getindex(itr, 1)); nothing)
+_unrolled_foreach(::Val{2}, f, itr) =
+    (f(generic_getindex(itr, 1)); f(generic_getindex(itr, 2)); nothing)
+_unrolled_foreach(::Val{3}, f, itr) =
+    (f(generic_getindex(itr, 1)); f(generic_getindex(itr, 2)); f(generic_getindex(itr, 3)); nothing)
 ```
 
-The default choice for `rec_unroll` is motivated by the benchmarks for
-[Generative vs. Recursive Unrolling](@ref).
+With this modification, manual unrolling does not exceed the compilation
+requirements of recursive unrolling across a wide range of use cases. Since it
+also avoids type instabilities for arbitrarily large iterators, a combination
+of hard-coded and generated functions with manual unrolling serves as the basis
+of all unrolled functions defined in this package. Similarly, the
+[`ntuple(f, ::Val{N})`](https://github.com/JuliaLang/julia/blob/v1.11.0/base/ntuple.jl)
+function in `Base` uses this strategy to implement loop unrolling.
+
+For benchmarks that compare these two implementations, see
+[Manual vs. Recursive Unrolling](@ref).
 
 ## Interface API
 
@@ -54,10 +73,8 @@ StaticSequence
 
 To unroll over a statically sized iterator of some user-defined type `T`, follow
 these steps:
-- To enable recursive unrolling, add a method for `iterate(::T, [state])`
-- To enable generative unrolling, add a method for `getindex(::T, n)` (or for
-  `generic_getindex(::T, n)` if `getindex` should not be defined for iterators
-  of type `T`)
+- Add a method for `getindex(::T, n)`, or for `generic_getindex(::T, n)` if
+  `getindex` should not be defined for iterators of type `T`
 - If every unrolled function that needs to construct an iterator when given an
   iterator of type `T` can return a `Tuple` instead, stop here
 - Otherwise, to return a non-`Tuple` iterator whenever it is efficient to do so,
