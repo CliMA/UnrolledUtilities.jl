@@ -136,8 +136,8 @@ end
         first_item_type(generic_getindex(itrs, 1))
     end
 
-@inline unrolled_map_output_type(f, itr) =
-    inferred_output_type(Iterators.map(f, itr))
+@inline unrolled_map_output_type(f, itrs...) =
+    inferred_output_type(Iterators.map(f, itrs...))
 
 @inline unrolled_accumulate_output_type(op, itr, init) =
     unambiguous_output_type(output_type_for_promotion(itr)) do
