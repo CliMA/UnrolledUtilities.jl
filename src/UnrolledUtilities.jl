@@ -234,18 +234,23 @@ include("manually_unrolled_functions.jl")
 
 @inline unrolled_in(item, itr) = unrolled_any(Base.Fix1(===, item), itr)
 
-@inline unrolled_unique(itr) =
-    unrolled_reduce(itr, inferred_empty(itr)) do items, item
-        @inline
-        unrolled_in(item, items) ? items : unrolled_push(items, item)
-    end
+# Like unrolled_filter, unrolled_unique is implemented in terms of
+# unrolled_flatmap instead of a reduction that pushes items into an
+# accumulator, so that inference's recursion-widening heuristics are not
+# triggered for long or complexly typed iterators. An item is kept when no
+# preceding item has the same value of f, which requires quadratically many
+# comparisons, but the pushing reduction also requires quadratically many.
+@inline unrolled_unique(itr) = unrolled_unique(identity, itr)
 @inline unrolled_unique(f::F, itr) where {F} =
-    unrolled_reduce(itr, ((), inferred_empty(itr))) do (f_values, items), item
+    unrolled_flatmap(static_range(itr)) do n
         @inline
-        f_value = f(item)
-        unrolled_in(f_value, f_values) ? (f_values, items) :
-        (unrolled_push(f_values, f_value), unrolled_push(items, item))
-    end[2]
+        f_value_n = f(generic_getindex(itr, n))
+        is_repeated_value = unrolled_any(StaticOneTo(n - 1)) do m
+            @inline
+            f(generic_getindex(itr, m)) === f_value_n
+        end
+        is_repeated_value ? () : (generic_getindex(itr, n),)
+    end
 
 @inline unrolled_allunique(itr) = unrolled_allunique(identity, itr)
 @inline unrolled_allunique(f::F, itr) where {F} =
@@ -359,21 +364,19 @@ include("manually_unrolled_functions.jl")
 @inline unrolled_arglast(f::F, itr) where {F} =
     unrolled_argfirst(f, Iterators.reverse(itr))
 
+# unrolled_filter and unrolled_split are implemented in terms of
+# unrolled_flatmap instead of a reduction that pushes items into an
+# accumulator. A pushing reduction changes the accumulator's type on every
+# step, which triggers inference's recursion-widening heuristics for long or
+# complexly typed iterators; the widened accumulator then requires dynamic
+# dispatch and heap allocation, neither of which can be compiled for GPUs.
+# With unrolled_flatmap, each item is mapped to an empty or singleton iterator
+# based only on that item's type, so no recursively growing type is inferred.
 @inline unrolled_filter(f::F, itr) where {F} =
-    unrolled_reduce(itr, inferred_empty(itr)) do items_with_true_f, item
-        @inline
-        f(item) ? unrolled_push(items_with_true_f, item) : items_with_true_f
-    end
+    unrolled_flatmap(item -> (@inline; f(item) ? (item,) : ()), itr)
 
 @inline unrolled_split(f::F, itr) where {F} =
-    unrolled_reduce(
-        itr,
-        (inferred_empty(itr), inferred_empty(itr)),
-    ) do (items_with_true_f, items_with_false_f), item
-        @inline
-        f(item) ? (unrolled_push(items_with_true_f, item), items_with_false_f) :
-        (items_with_true_f, unrolled_push(items_with_false_f, item))
-    end
+    (unrolled_filter(f, itr), unrolled_filter(!f, itr))
 
 ##
 ## Unrolled analogues of functions from base/iterators.jl
