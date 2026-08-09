@@ -394,15 +394,22 @@ include("manually_unrolled_functions.jl")
 @inline unrolled_flatmap(f::F, itrs...) where {F} =
     unrolled_flatten(unrolled_map(f, itrs...))
 
-@inline unrolled_product(itrs...) =
-    ntuple(Val(unrolled_prod(length, itrs))) do n
+# The cumulative lengths are precomputed as a tuple of integers so that each
+# item computation only needs to index into a homogeneous integer tuple, which
+# is type-stable for any index. Slicing itrs inside the ntuple closures would
+# instead require constant propagation of itr_index to infer each slice's
+# length, which fails on Julia 1.11 and makes the index arithmetic dynamic.
+@inline function unrolled_product(itrs...)
+    cumulative_lengths = unrolled_cumprod(length, itrs)
+    return ntuple(Val(unrolled_prod(length, itrs))) do n
         @inline
         Base.@assume_effects :foldable
         items = ntuple(Val(length(itrs))) do itr_index
             @inline
             Base.@assume_effects :foldable
             cur_length = length(itrs[itr_index])
-            prev_length = unrolled_prod(length, itrs[1:(itr_index - 1)])
+            prev_length =
+                itr_index == 1 ? 1 : cumulative_lengths[itr_index - 1]
             item_index = (n - 1) ÷ prev_length % cur_length + 1
             generic_getindex(itrs[itr_index], item_index)
         end
@@ -412,6 +419,7 @@ include("manually_unrolled_functions.jl")
         # optimize for low-storage iterators (e.g., by using unrolled_push).
         constructor_from_tuple(promoted_output_type(itrs...))(items)
     end
+end
 
 @inline unrolled_cycle(itr, ::Val{N}) where {N} =
     unrolled_flatten(ntuple(Returns(itr), Val(N)))
