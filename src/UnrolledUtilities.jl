@@ -250,9 +250,8 @@ include("manually_unrolled_functions.jl")
 @inline unrolled_unique(f::F, itr) where {F} =
     unrolled_unique_into(inferred_output_type(itr), f, itr)
 @inline unrolled_unique_into(output_type, f::F, itr) where {F} =
-    unrolled_map_into(
+    tuple_into_output_type(
         output_type,
-        identity,
         unrolled_flatten(
             unrolled_map_into_tuple(static_range(itr)) do n
                 @inline
@@ -393,13 +392,20 @@ include("manually_unrolled_functions.jl")
 # Tuple rather than an item of the original iterator, and an unconditional
 # output type like SVector would need to hold the abstract type of the empty
 # and singleton Tuples). The filtered items are converted in a single step at
-# the end, into the output type inferred from the original iterator.
+# the end, into the output type inferred from the original iterator. The
+# conversion is skipped entirely when that output type is Tuple, since the
+# extra conversion layers can prevent the result's value from constant
+# folding, which is required whenever the result is used as a type parameter
+# (e.g., in the Components{T, names} type in ClimaCore).
+@inline tuple_into_output_type(::Type{Tuple}, items::Tuple) = items
+@inline tuple_into_output_type(output_type, items::Tuple) =
+    unrolled_map_into(output_type, identity, items)
+
 @inline unrolled_filter(f::F, itr) where {F} =
     unrolled_filter_into(inferred_output_type(itr), f, itr)
 @inline unrolled_filter_into(output_type, f::F, itr) where {F} =
-    unrolled_map_into(
+    tuple_into_output_type(
         output_type,
-        identity,
         unrolled_flatten(
             unrolled_map_into_tuple(
                 item -> (@inline; f(item) ? (item,) : ()),
@@ -415,16 +421,14 @@ include("manually_unrolled_functions.jl")
 @inline function unrolled_split(f::F, itr) where {F}
     pairs = unrolled_map_into_tuple(item -> (@inline; (f(item), item)), itr)
     output_type = inferred_output_type(itr)
-    items_with_true_f = unrolled_map_into(
+    items_with_true_f = tuple_into_output_type(
         output_type,
-        identity,
         unrolled_flatten(
             unrolled_map_into_tuple(((b, x),) -> b ? (x,) : (), pairs),
         ),
     )
-    items_with_false_f = unrolled_map_into(
+    items_with_false_f = tuple_into_output_type(
         output_type,
-        identity,
         unrolled_flatten(
             unrolled_map_into_tuple(((b, x),) -> b ? () : (x,), pairs),
         ),
