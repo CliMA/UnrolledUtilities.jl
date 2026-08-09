@@ -5,6 +5,7 @@ version = "0.1.10"
 
 [compat]
 julia = "1.9"
+PrettyTables = "2"
 StaticArrays = "1"
 
 [weakdeps]
