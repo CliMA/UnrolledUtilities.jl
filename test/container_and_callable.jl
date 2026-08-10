@@ -84,3 +84,29 @@ end
     @test_opt heterogeneous_product(itr1, itr2)
     @test_opt heterogeneous_product(itr1, itr2, itr3)
 end
+
+# The results of these functions are used as type parameters downstream
+# (e.g., the names in ClimaCore's Components{T, names}), so their values must
+# constant-fold when their inputs are constant. Wrapping each result in Val
+# makes inference fail unless the value folds. Even a single additional call
+# layer can break folding on some Julia versions while leaving results equal
+# and types stable, so these tests must run on every CI Julia version.
+@testset "value-level constant folding for constant inputs" begin
+    # The input arrives as a type parameter, mirroring how ClimaCore's
+    # Components type provides its names to these functions.
+    filter_val(::Val{names}) where {names} =
+        Val(unrolled_filter(n -> length(n) == 1, names))
+    unique_val(::Val{names}) where {names} = Val(unrolled_unique(names))
+    allunique_val(::Val{names}) where {names} = Val(unrolled_allunique(names))
+    split_val(::Val{names}) where {names} =
+        Val(unrolled_split(n -> length(n) == 1, names))
+    take_val(::Val{names}) where {names} = Val(unrolled_take(names, Val(2)))
+    drop_val(::Val{names}) where {names} = Val(unrolled_drop(names, Val(2)))
+    v = Val(((1,), (2, 3), (1,), (2, 3), (4,)))
+    @test @inferred(filter_val(v)) == Val(((1,), (1,), (4,)))
+    @test @inferred(unique_val(v)) == Val(((1,), (2, 3), (4,)))
+    @test @inferred(allunique_val(v)) == Val(false)
+    @test @inferred(split_val(v)) == Val((((1,), (1,), (4,)), ((2, 3), (2, 3))))
+    @test @inferred(take_val(v)) == Val(((1,), (2, 3)))
+    @test @inferred(drop_val(v)) == Val(((1,), (2, 3), (4,)))
+end
