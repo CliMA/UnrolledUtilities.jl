@@ -234,36 +234,26 @@ include("manually_unrolled_functions.jl")
 
 @inline unrolled_in(item, itr) = unrolled_any(Base.Fix1(===, item), itr)
 
-# Like unrolled_filter, unrolled_unique is implemented by flattening a Tuple
-# of empty or singleton Tuples instead of using a reduction that pushes items
-# into an accumulator, so that inference's recursion-widening heuristics are
-# not triggered for long or complexly typed iterators, and the unique items
-# are converted in a single step at the end into the output type inferred
-# from the original iterator. An item is kept when no preceding item has the
-# same value of f, which requires quadratically many comparisons, but the
-# pushing reduction also requires quadratically many.
-# Every comparison uses the same full-length range with a guard on the index,
-# since a range like StaticOneTo(n - 1) would need constant propagation of n
-# through the closure to have an inferrable type, which cannot be relied on
-# across Julia versions.
+# Like unrolled_filter, unrolled_unique flattens a Tuple of empty or
+# singleton Tuples with unrolled_flatmap_into. An item is kept when no
+# preceding item has the same value of f, which requires quadratically many
+# comparisons. Every comparison uses the same full-length range with a guard
+# on the index, since a range like StaticOneTo(n - 1) would need constant
+# propagation of n through the closure to have an inferrable type, which
+# cannot be relied on across Julia versions.
 @inline unrolled_unique(itr) = unrolled_unique(identity, itr)
 @inline unrolled_unique(f::F, itr) where {F} =
     unrolled_unique_into(inferred_output_type(itr), f, itr)
 @inline unrolled_unique_into(output_type, f::F, itr) where {F} =
-    tuple_into_output_type(
-        output_type,
-        unrolled_flatten(
-            unrolled_map_into_tuple(static_range(itr)) do n
-                @inline
-                f_value_n = f(generic_getindex(itr, n))
-                is_repeated_value = unrolled_any(static_range(itr)) do m
-                    @inline
-                    m < n && f(generic_getindex(itr, m)) === f_value_n
-                end
-                is_repeated_value ? () : (generic_getindex(itr, n),)
-            end,
-        ),
-    )
+    unrolled_flatmap_into(output_type, static_range(itr)) do n
+        @inline
+        f_value_n = f(generic_getindex(itr, n))
+        is_repeated_value = unrolled_any(static_range(itr)) do m
+            @inline
+            m < n && f(generic_getindex(itr, m)) === f_value_n
+        end
+        is_repeated_value ? () : (generic_getindex(itr, n),)
+    end
 
 @inline unrolled_allunique(itr) = unrolled_allunique(identity, itr)
 @inline unrolled_allunique(f::F, itr) where {F} =
@@ -377,63 +367,56 @@ include("manually_unrolled_functions.jl")
 @inline unrolled_arglast(f::F, itr) where {F} =
     unrolled_argfirst(f, Iterators.reverse(itr))
 
-# unrolled_filter and unrolled_split are implemented by flattening a Tuple of
-# empty or singleton Tuples instead of using a reduction that pushes items
-# into an accumulator. A pushing reduction changes the accumulator's type on
-# every step, which triggers inference's recursion-widening heuristics for
-# long or complexly typed iterators; the widened accumulator then requires
-# dynamic dispatch and heap allocation, neither of which can be compiled for
-# GPUs. Each item is mapped to an empty or singleton Tuple based only on that
-# item's type, so no recursively growing type is inferred.
+# unrolled_filter, unrolled_split, and unrolled_unique select items by
+# flattening a Tuple of empty or singleton Tuples with unrolled_flatmap_into.
+# Selecting items with a reduction that pushes them into an accumulator would
+# change the accumulator's type on every step, which triggers inference's
+# recursion-widening heuristics for long or complexly typed iterators, and
+# the widened accumulator would require dynamic dispatch and heap allocation,
+# neither of which can be compiled for GPUs. With a flattened map, each item
+# is mapped to an empty or singleton Tuple based only on that item's type, so
+# no recursively growing type is inferred.
 # The intermediate iterators are forced to be Tuples with
-# unrolled_map_into_tuple, since the output type inferred for the map over
-# empty and singleton Tuples is not the output type of the filter (a
+# unrolled_map_into_tuple, since the output type inferred for a map over
+# empty and singleton Tuples is not the output type of the selection (a
 # ConditionalOutputType resolves against the first mapped item, which is a
 # Tuple rather than an item of the original iterator, and an unconditional
 # output type like SVector would need to hold the abstract type of the empty
-# and singleton Tuples). The filtered items are converted in a single step at
+# and singleton Tuples). The selected items are converted in a single step at
 # the end, into the output type inferred from the original iterator. The
-# conversion is skipped entirely when that output type is Tuple, since the
-# extra conversion layers can prevent the result's value from constant
-# folding, which is required whenever the result is used as a type parameter
-# (e.g., in the Components{T, names} type in ClimaCore).
+# conversion is skipped entirely when that output type is Tuple, since extra
+# conversion layers can prevent the result's value from constant folding,
+# which is required whenever the result is used as a type parameter (e.g., in
+# the Components{T, names} type in ClimaCore).
 @inline tuple_into_output_type(::Type{Tuple}, items::Tuple) = items
 @inline tuple_into_output_type(output_type, items::Tuple) =
     unrolled_map_into(output_type, identity, items)
 
+@inline unrolled_flatmap_into(f::F, output_type, itr) where {F} =
+    tuple_into_output_type(
+        output_type,
+        unrolled_flatten(unrolled_map_into_tuple(f, itr)),
+    )
+
 @inline unrolled_filter(f::F, itr) where {F} =
     unrolled_filter_into(inferred_output_type(itr), f, itr)
 @inline unrolled_filter_into(output_type, f::F, itr) where {F} =
-    tuple_into_output_type(
+    unrolled_flatmap_into(
+        item -> (@inline; f(item) ? (item,) : ()),
         output_type,
-        unrolled_flatten(
-            unrolled_map_into_tuple(
-                item -> (@inline; f(item) ? (item,) : ()),
-                itr,
-            ),
-        ),
+        itr,
     )
 
 # The values of f are computed only once per item, and they are stored in a
-# Tuple of (value, item) pairs instead of being recomputed for the second
-# part of the split. This also avoids negating f, which is only possible when
-# f is a Function.
+# Tuple of (value, item) pairs so that both parts of the split can read them.
+# This also avoids negating f, which is only possible when f is a Function.
 @inline function unrolled_split(f::F, itr) where {F}
     pairs = unrolled_map_into_tuple(item -> (@inline; (f(item), item)), itr)
     output_type = inferred_output_type(itr)
-    items_with_true_f = tuple_into_output_type(
-        output_type,
-        unrolled_flatten(
-            unrolled_map_into_tuple(((b, x),) -> b ? (x,) : (), pairs),
-        ),
+    return (
+        unrolled_flatmap_into(((b, x),) -> b ? (x,) : (), output_type, pairs),
+        unrolled_flatmap_into(((b, x),) -> b ? () : (x,), output_type, pairs),
     )
-    items_with_false_f = tuple_into_output_type(
-        output_type,
-        unrolled_flatten(
-            unrolled_map_into_tuple(((b, x),) -> b ? () : (x,), pairs),
-        ),
-    )
-    return (items_with_true_f, items_with_false_f)
 end
 
 ##
