@@ -174,9 +174,9 @@ end
     @test (@allocated reduce_init_nothing(itr)) == 0
 end
 
-@testset "StaticBitVector accumulate fix (H3)" begin
-    # This would throw MethodError before the fix due to the stale 4th
-    # positional `first` argument to unrolled_accumulate.
+@testset "StaticBitVector accumulate fix" begin
+    # Test that there is no MethodError with 4th
+    # positional argument to unrolled_accumulate.
     bv = StaticBitVector{8}(isodd)
     cumor = unrolled_accumulate(|, bv)
     @test cumor isa StaticBitVector

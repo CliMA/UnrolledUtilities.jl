@@ -20,8 +20,7 @@ jobs:
   test:
     name: ci ${{ matrix.version }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # The test suite takes about 45 minutes; without a limit, a hung job
-    # occupies a runner until GitHub's 6 hour timeout.
+    
     timeout-minutes: 90
     strategy:
       fail-fast: false

@@ -171,8 +171,8 @@ end
     n_ints = cld(N, n_bits_per_int)
     # Each step accumulates an (int, value) pair, where the value is the last
     # Bool accumulated into that int, so that it can initialize the next int.
-    # The init value is unwrapped here, rather than in the innermost loop, so
-    # that every accumulated value has the same type.
+    # The init value is unwrapped here so that every accumulated value has the 
+    # same type.
     int_and_value_pairs = unrolled_accumulate(
         StaticOneTo(n_ints),
         (nothing, init_value(init)),

@@ -6,9 +6,7 @@ using UnrolledUtilities
 # enforced: inference's recursion-widening heuristics, its union-splitting
 # limits, and the specialization of keyword-argument calls all have thresholds
 # that CPU analyses like JET do not reach, so code that JET reports as clean can
-# still fail to compile for a GPU. Each test below compiles a kernel whose body
-# exercises one of the patterns that has broken GPU compilation of downstream
-# code.
+# still fail to compile for a GPU.
 #
 # Compiling a kernel is the assertion: `@cuda launch = false` throws an
 # InvalidIRError if the kernel's IR contains a dynamic dispatch or a heap
@@ -33,13 +31,12 @@ count_up(accumulated, _) = accumulated + 1
 
 compiles(kernel, args...) = (CUDA.@cuda launch = false kernel(args...); true)
 
-# Selecting items from a wide iterator with heterogeneous item types is the
-# pattern that broke ClimaAtmos: implementations that push items into an
-# accumulator whose type grows on every step make this kernel fail to compile.
+# Selecting items from a wide iterator with heterogeneous item types stress-tests
+# the implementation.
 function selection_kernel!(out, itr)
     @inbounds out[1] =
         unrolled_sum(one_of, unrolled_filter(is_int, itr), 0) +
-        unrolled_sum(one_of, unrolled_unique(itr), 0) +
+        unrolled_sum(one_of, unrolled_unique(typeof, itr), 0) +
         unrolled_sum(one_of, first(unrolled_split(is_int, itr)), 0)
     return nothing
 end

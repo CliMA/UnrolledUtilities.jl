@@ -23,9 +23,7 @@ steps:
 
   - wait
 
-  # The kernel-safety contract is only fully enforced by GPU compilation: the
-  # thresholds of inference's widening heuristics and of keyword-argument
-  # specialization are not reached by the CPU analyses in test/kernel_safety.jl.
+  # Test for kernel-safety by direct GPU compilation
   - label: "GPU kernel safety"
     key: "gpu_kernel_safety"
     command: "julia --color=yes --project=test/gpu test/gpu/kernels.jl"

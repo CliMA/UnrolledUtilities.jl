@@ -14,7 +14,8 @@ concurrency:
 jobs:
   docbuild:
     runs-on: ubuntu-latest
-    # The documentation build runs the full analysis suite.
+    # The documentation build currently runs the full analysis suite.
+    # TODO: Reduce to what's needed for docs
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4

@@ -200,18 +200,32 @@ include("manually_unrolled_functions.jl")
 @inline unrolled_foreach(f, itrs...) = unrolled_foreach(splat(f), zip(itrs...))
 
 @inline unrolled_reduce(op::O, itr, init) where {O} =
-    _unrolled_reduce(Val(length(itr)), op, itr, init)
+    _unrolled_reduce(Val(length(itr)), op, itr, init_value(init))
 @inline unrolled_reduce(op::O, itr; init = NoInit()) where {O} =
     unrolled_reduce(op, itr, init)
 
-# The Init method is dispatched ahead of the varargs catch-all below.
-@inline unrolled_mapreduce(f::F, op::O, init::Init, itrs...) where {F, O} =
-    unrolled_reduce(op, unrolled_map(f, itrs...), init)
-@inline unrolled_mapreduce(f::F, op::O, itrs...; init = NoInit()) where {F, O} =
+# Every other function in this package maps and reduces through
+# _unrolled_mapreduce, so that init values are only passed positionally: a
+# keyword argument is lowered into a call to Core.kwcall, which does not always
+# specialize during GPU compilation and is a dynamic invocation when it does
+# not.
+@inline _unrolled_mapreduce(f::F, op::O, init, itrs...) where {F, O} =
     unrolled_reduce(op, unrolled_map(f, itrs...), init)
 
+# The Init method is dispatched ahead of the varargs catch-all below, which
+# requires at least one iterator so that an Init on its own is unambiguous.
+@inline unrolled_mapreduce(f::F, op::O, init::Init, itrs...) where {F, O} =
+    _unrolled_mapreduce(f, op, init_value(init), itrs...)
+@inline unrolled_mapreduce(
+    f::F,
+    op::O,
+    itr1,
+    itrs...;
+    init = NoInit(),
+) where {F, O} = _unrolled_mapreduce(f, op, init, itr1, itrs...)
+
 @inline unrolled_accumulate_into_tuple(op::O, itr, init) where {O} =
-    _unrolled_accumulate(Val(length(itr)), op, itr, init)
+    _unrolled_accumulate(Val(length(itr)), op, itr, init_value(init))
 @inline unrolled_accumulate_into(output_type, op::O, itr, init) where {O} =
     constructor_from_tuple(output_type)(
         unrolled_accumulate_into_tuple(op, itr, init),
@@ -275,16 +289,30 @@ include("manually_unrolled_functions.jl")
 @inline unrolled_unique(itr) = unrolled_unique(identity, itr)
 @inline unrolled_unique(f::F, itr) where {F} =
     unrolled_unique_into(inferred_output_type(itr), f, itr)
-@inline unrolled_unique_into(output_type, f::F, itr) where {F} =
-    unrolled_flatmap_into(output_type, static_range(itr)) do n
+@inline _val_tuple(::Val{0}) = ()
+@inline _val_tuple(::Val{1}) = (Val(1),)
+@inline _val_tuple(::Val{2}) = (Val(1), Val(2))
+@inline _val_tuple(::Val{3}) = (Val(1), Val(2), Val(3))
+@generated _val_tuple(::Val{N}) where {N} =
+    :(@inline Base.Cartesian.@ntuple $N n -> Val(n))
+@inline val_n_value(::Val{N}) where {N} = N
+
+@inline function unrolled_unique_into(output_type, f::F, itr) where {F}
+    # Both loops iterate over the same indices, so that only one tuple of Vals
+    # is instantiated.
+    val_indices = _val_tuple(Val(length(itr)))
+    return unrolled_flatmap_into(output_type, val_indices) do val_n
         @inline
+        n = val_n_value(val_n)
         f_value_n = f(generic_getindex(itr, n))
-        is_repeated_value = unrolled_any(static_range(itr)) do m
+        is_repeated_value = unrolled_any(val_indices) do val_m
             @inline
+            m = val_n_value(val_m)
             m < n && f(generic_getindex(itr, m)) === f_value_n
         end
         is_repeated_value ? () : (generic_getindex(itr, n),)
     end
+end
 
 @inline unrolled_allunique(itr) = unrolled_allunique(identity, itr)
 @inline unrolled_allunique(f::F, itr) where {F} =
@@ -307,38 +335,40 @@ include("manually_unrolled_functions.jl")
 # There is no (itr, init) positional form because it is ambiguous with (f, itr).
 
 @inline unrolled_sum(f::F, itr, init) where {F} =
-    isempty(itr) ? init_value(init) : unrolled_mapreduce(f, +, itr)
+    isempty(itr) ? init_value(init) : _unrolled_mapreduce(f, +, NoInit(), itr)
 @inline unrolled_sum(itr; init = 0) = unrolled_sum(identity, itr, init)
 @inline unrolled_sum(f::F, itr; init = 0) where {F} = unrolled_sum(f, itr, init)
 
 @inline unrolled_prod(f::F, itr, init) where {F} =
-    isempty(itr) ? init_value(init) : unrolled_mapreduce(f, *, itr)
+    isempty(itr) ? init_value(init) : _unrolled_mapreduce(f, *, NoInit(), itr)
 @inline unrolled_prod(itr; init = 1) = unrolled_prod(identity, itr, init)
 @inline unrolled_prod(f::F, itr; init = 1) where {F} =
     unrolled_prod(f, itr, init)
 
 @inline unrolled_cumsum(itr) = unrolled_cumsum(identity, itr)
 @inline unrolled_cumsum(f::F, itr) where {F} =
-    unrolled_accumulate(+, unrolled_map(f, itr))
+    unrolled_accumulate(+, unrolled_map(f, itr), NoInit())
 
 @inline unrolled_cumprod(itr) = unrolled_cumprod(identity, itr)
 @inline unrolled_cumprod(f::F, itr) where {F} =
-    unrolled_accumulate(*, unrolled_map(f, itr))
+    unrolled_accumulate(*, unrolled_map(f, itr), NoInit())
 
 @inline unrolled_count(itr) = unrolled_count(identity, itr)
-@inline unrolled_count(f::F, itr) where {F} = unrolled_sum(Bool ⋅ f, itr)
+@inline unrolled_count(f::F, itr) where {F} = unrolled_sum(Bool ⋅ f, itr, 0)
 
 @inline unrolled_maximum(itr) = unrolled_maximum(identity, itr)
-@inline unrolled_maximum(f::F, itr) where {F} = unrolled_mapreduce(f, max, itr)
+@inline unrolled_maximum(f::F, itr) where {F} =
+    _unrolled_mapreduce(f, max, NoInit(), itr)
 
 @inline unrolled_minimum(itr) = unrolled_minimum(identity, itr)
-@inline unrolled_minimum(f::F, itr) where {F} = unrolled_mapreduce(f, min, itr)
+@inline unrolled_minimum(f::F, itr) where {F} =
+    _unrolled_mapreduce(f, min, NoInit(), itr)
 
 @inline extrema_reduction_operator((f_min1, f_max1), (f_min2, f_max2)) =
     (min(f_min1, f_min2), max(f_max1, f_max2))
 @inline unrolled_extrema(itr) = unrolled_extrema(identity, itr)
 @inline unrolled_extrema(f::F, itr) where {F} =
-    unrolled_mapreduce(extrema_reduction_operator, itr) do item
+    _unrolled_mapreduce(extrema_reduction_operator, NoInit(), itr) do item
         @inline
         f_value = f(item)
         (f_value, f_value)
@@ -348,7 +378,11 @@ include("manually_unrolled_functions.jl")
     f_value1 < f_value2 ? (f_value2, value2) : (f_value1, value1)
 @inline unrolled_findmax(itr) = unrolled_findmax(identity, itr)
 @inline unrolled_findmax(f::F, itr) where {F} =
-    unrolled_mapreduce(findmax_reduction_operator, enumerate(itr)) do (n, item)
+    _unrolled_mapreduce(
+        findmax_reduction_operator,
+        NoInit(),
+        enumerate(itr),
+    ) do (n, item)
         @inline
         (f(item), n)
     end
@@ -357,21 +391,25 @@ include("manually_unrolled_functions.jl")
     f_value1 > f_value2 ? (f_value2, value2) : (f_value1, value1)
 @inline unrolled_findmin(itr) = unrolled_findmin(identity, itr)
 @inline unrolled_findmin(f::F, itr) where {F} =
-    unrolled_mapreduce(findmin_reduction_operator, enumerate(itr)) do (n, item)
+    _unrolled_mapreduce(
+        findmin_reduction_operator,
+        NoInit(),
+        enumerate(itr),
+    ) do (n, item)
         @inline
         (f(item), n)
     end
 
 @inline unrolled_argmax(itr) = unrolled_findmax(itr)[2]
 @inline unrolled_argmax(f::F, itr) where {F} =
-    unrolled_mapreduce(findmax_reduction_operator, itr) do item
+    _unrolled_mapreduce(findmax_reduction_operator, NoInit(), itr) do item
         @inline
         (f(item), item)
     end[2]
 
 @inline unrolled_argmin(itr) = unrolled_findmin(itr)[2]
 @inline unrolled_argmin(f::F, itr) where {F} =
-    unrolled_mapreduce(findmin_reduction_operator, itr) do item
+    _unrolled_mapreduce(findmin_reduction_operator, NoInit(), itr) do item
         @inline
         (f(item), item)
     end[2]
@@ -465,7 +503,7 @@ end
     elseif length(itr) == 1
         non_lazy_iterator(generic_getindex(itr, 1))
     else
-        unrolled_reduce(unrolled_append, itr)
+        unrolled_reduce(unrolled_append, itr, NoInit())
     end
 
 @inline unrolled_flatmap(f::F, itrs...) where {F} =

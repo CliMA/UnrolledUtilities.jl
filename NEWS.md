@@ -4,8 +4,7 @@
 
 ### Breaking changes
 
-- Julia compat floor raised from 1.9 to 1.10. Julia 1.9 was never tested in CI
-  and in-body `@assume_effects` annotations (now removed) required ≥ 1.10.
+- Julia compat floor raised from 1.9 to 1.10. Julia 1.9 was never tested in CI.
 
 ### New features
 
@@ -35,12 +34,34 @@
   **`unrolled_accumulate(op, itr, init)`** are now documented API (they were
   already functional but undocumented).
 
+- **Every internal reduction passes its init value positionally.**
+  `unrolled_sum`, `unrolled_prod`, `unrolled_count`, `unrolled_cumsum`,
+  `unrolled_cumprod`, `unrolled_maximum`, `unrolled_minimum`,
+  `unrolled_extrema`, the `findmax`/`findmin`/`argmax`/`argmin` family, and
+  `unrolled_flatten` all reduce through a positional internal method, so that
+  keyword arguments only appear in the outermost user-facing methods. Results
+  are unchanged.
+
+### Breaking changes to method signatures
+
+- **`unrolled_mapreduce` now requires at least one iterator** in its
+  keyword-argument form, so that an `Init` passed on its own is unambiguous.
+  Calling `unrolled_mapreduce(f, op)` with no iterators now throws a
+  `MethodError`.
+
 ### Bug fixes
 
 - Fixed latent `MethodError` in `StaticBitVector`'s `unrolled_accumulate_into`:
-  a 4th positional argument (`first`) was a vestige of the removed `transform`
-  keyword argument. Bool-accumulating `StaticBitVector` outputs now work
+  an extraneous 4th positional argument (`first`) was removed. Bool-accumulating `StaticBitVector` outputs now work
   correctly.
+
+- **`unrolled_unique` and `unrolled_allunique` compile for GPUs again.** They
+  index their iterators with a tuple of `Val`s rather than with a range of
+  `Int`s, so the indices live in the type domain and the comparisons fold
+  without relying on constant propagation. Note that uniqueness must be
+  determined by type (e.g. `unrolled_unique(typeof, itr)`) to be usable in a
+  kernel: when it is determined by value, the number of unique items depends
+  on the values, so the type of the result does too.
 
 ### Testing
 
@@ -51,13 +72,6 @@
   call to `Core.kwcall`. A companion job (`.buildkite/pipeline.yml`,
   `test/gpu/kernels.jl`) compiles GPU kernels over the same patterns, since GPU
   compilation is the only place where these limits are fully enforced.
-
-### Policy
-
-- **Version-coupling policy (S5)**: behavioral changes ship as 0.x minor bumps
-  with NEWS entries. Downstream packages (e.g., ClimaCore) should pin the minor
-  version (`UnrolledUtilities = "0.2"`) so behavior cannot drift through patch
-  ranges.
 
 ## v0.1.10
 
@@ -74,6 +88,5 @@ This release predates this file; the entry below was added retroactively.
   so that they can be used as type parameters.
 - `unrolled_product` precomputes cumulative lengths instead of slicing its
   iterators inside closures, which would require constant propagation that
-  fails on Julia 1.11, and its in-body `@assume_effects :foldable` annotations
-  were removed.
+  fails on Julia 1.11.
 - `PrettyTables` is pinned to v2 for the test and documentation table printers.
