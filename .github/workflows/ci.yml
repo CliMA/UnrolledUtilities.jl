@@ -7,10 +7,22 @@ on:
   pull_request:
   merge_group:
 
+# Needed to allow julia-actions/cache to delete old caches that it has created
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: ci ${{ matrix.version }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # The test suite takes about 45 minutes; without a limit, a hung job
+    # occupies a runner until GitHub's 6 hour timeout.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -23,9 +35,10 @@ jobs:
           - windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v1
+      - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
       - name: Run tests
         run: julia --project -e 'using Pkg; Pkg.test(; coverage = false)'

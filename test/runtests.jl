@@ -1,5 +1,8 @@
 using SafeTestsets
 
+@safetestset "Kernel safety" begin
+    @time include("kernel_safety.jl")
+end
 @safetestset "Container and callable regression tests" begin
     @time include("container_and_callable.jl")
 end

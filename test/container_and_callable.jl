@@ -110,3 +110,90 @@ end
     @test @inferred(take_val(v)) == Val(((1,), (2, 3)))
     @test @inferred(drop_val(v)) == Val(((1,), (2, 3), (4,)))
 end
+
+@testset "Init positional API" begin
+    itr = (1, 2, 3, 4, 5)
+
+    # unrolled_reduce with Init
+    @test unrolled_reduce(+, itr, Init(10)) == 25
+    @test unrolled_reduce(+, itr, 10) == 25  # plain positional still works
+    @test unrolled_reduce(+, (), Init(42)) == 42  # empty itr returns init
+    @test @inferred(unrolled_reduce(+, itr, Init(0))) == 15
+
+    # unrolled_mapreduce with Init (positional, ahead of varargs)
+    @test unrolled_mapreduce(x -> x^2, +, Init(100), itr) == 155
+    @test unrolled_mapreduce(x -> x^2, +, itr; init = 100) == 155  # kwarg compat
+    @test @inferred(unrolled_mapreduce(x -> x^2, +, Init(0), itr)) == 55
+
+    # unrolled_mapreduce with Init and multiple iterators
+    @test unrolled_mapreduce(+, +, Init(100), itr, itr) == 130
+
+    # unrolled_accumulate with Init
+    @test unrolled_accumulate(+, itr, Init(10)) == (11, 13, 16, 20, 25)
+    @test unrolled_accumulate(+, itr, 10) == (11, 13, 16, 20, 25)
+    @test @inferred(unrolled_accumulate(+, itr, Init(0))) == (1, 3, 6, 10, 15)
+
+    # unrolled_sum positional (3-arg: f, itr, init)
+    # Note: unrolled_sum/prod only use init if the iterator is empty!
+    @test unrolled_sum(identity, itr, 100) == 15
+    @test unrolled_sum(x -> x^2, itr, 100) == 55
+    @test unrolled_sum(identity, (), 42) == 42
+    @test @inferred(unrolled_sum(identity, itr, 0)) == 15
+
+    # unrolled_prod positional (3-arg: f, itr, init)
+    @test unrolled_prod(identity, itr, 10) == 120
+    @test unrolled_prod(x -> x + 1, itr, 1) == 720
+    @test unrolled_prod(identity, (), 42) == 42
+    @test @inferred(unrolled_prod(identity, itr, 1)) == 120
+
+    # Verify kwarg shims still work identically
+    @test unrolled_sum(itr; init = 100) == 15
+    @test unrolled_prod(itr; init = 10) == 120
+    @test unrolled_reduce(+, itr; init = 10) == 25
+    @test unrolled_accumulate(+, itr; init = 10) == (11, 13, 16, 20, 25)
+
+    # An Init wrapper and a bare value are interchangeable in every function
+    # that accepts an init value, including the ones that only use the init
+    # value when the iterator is empty.
+    @test unrolled_sum(identity, (), Init(42)) == 42
+    @test unrolled_prod(identity, (), Init(42)) == 42
+    @test unrolled_sum(identity, itr, Init(100)) == 15
+    @test unrolled_prod(identity, itr, Init(10)) == 120
+    bv = StaticBitVector{4}(Returns(false))
+    @test unrolled_accumulate(|, bv, Init(true)) ==
+          unrolled_accumulate(|, bv, true)
+
+    # Type stability and zero allocations for Init paths
+    reduce_init(t) = unrolled_reduce(+, t, Init(0))
+    mapreduce_init(t) = unrolled_mapreduce(identity, +, Init(0), t)
+    @test @inferred(reduce_init(itr)) == 15
+    @test @inferred(mapreduce_init(itr)) == 15
+
+    reduce_init_nothing(t) = (reduce_init(t); nothing)
+    reduce_init_nothing(itr)
+    @test (@allocated reduce_init_nothing(itr)) == 0
+end
+
+@testset "StaticBitVector accumulate fix (H3)" begin
+    # This would throw MethodError before the fix due to the stale 4th
+    # positional `first` argument to unrolled_accumulate.
+    bv = StaticBitVector{8}(isodd)
+    cumor = unrolled_accumulate(|, bv)
+    @test cumor isa StaticBitVector
+    # cumulative OR of [true, false, true, false, true, false, true, false]
+    # → every position from index 1 onward should be true.
+    @test all(Tuple(cumor))
+
+    cumand = unrolled_accumulate(&, bv)
+    @test cumand isa StaticBitVector
+    # cumulative AND: first is true, then true & false = false, stays false.
+    @test Tuple(cumand) ==
+          (true, false, false, false, false, false, false, false)
+
+    # With Init
+    bv_short = StaticBitVector{4}(Returns(false))
+    cum_init = unrolled_accumulate(|, bv_short, true)
+    @test cum_init isa StaticBitVector
+    # Init=true, OR with false → all true.
+    @test all(Tuple(cum_init))
+end

@@ -3,6 +3,7 @@ module UnrolledUtilities
 export StaticSequence,
     StaticOneTo,
     StaticBitVector,
+    Init,
     unrolled_push,
     unrolled_append,
     unrolled_prepend,
@@ -53,13 +54,40 @@ include("unrollable_iterator_interface.jl")
 # Analogue of the non-public Base._InitialValue for reduction and accumulation.
 struct NoInit end
 
+"""
+    Init(value)
+    Init{V}(value::V)
+
+A wrapper for reduction/accumulation initial values that enables positional
+dispatch through varargs, avoiding `Core.kwcall` (which fails under GPU
+compilation). Use `Init(value)` wherever you would write `; init = value`
+in a keyword-argument call.
+
+# Examples
+```julia
+# Keyword form (host-side only):
+unrolled_mapreduce(f, op, itr; init = v)
+
+# Positional form (GPU-safe):
+unrolled_mapreduce(f, op, Init(v), itr)
+```
+"""
+struct Init{V}
+    value::V
+end
+
+# Every function that accepts an init value unwraps it with init_value, so that
+# an Init wrapper and a bare value are always interchangeable.
+@inline init_value(init) = init
+@inline init_value(init::Init) = init.value
+
 @inline empty_reduction_value(::NoInit) =
     error("unrolled_reduce requires an init value for empty iterators")
-@inline empty_reduction_value(init) = init
+@inline empty_reduction_value(init) = init_value(init)
 
 @inline first_reduction_value(op, itr, ::NoInit) = generic_getindex(itr, 1)
 @inline first_reduction_value(op, itr, init) =
-    op(init, generic_getindex(itr, 1))
+    op(init_value(init), generic_getindex(itr, 1))
 
 # Analogue of ∘, but with only one function argument and guaranteed inlining.
 # Base's ∘ leads to type instabilities in unit tests on Julia 1.10 and 1.11.
@@ -176,6 +204,9 @@ include("manually_unrolled_functions.jl")
 @inline unrolled_reduce(op::O, itr; init = NoInit()) where {O} =
     unrolled_reduce(op, itr, init)
 
+# The Init method is dispatched ahead of the varargs catch-all below.
+@inline unrolled_mapreduce(f::F, op::O, init::Init, itrs...) where {F, O} =
+    unrolled_reduce(op, unrolled_map(f, itrs...), init)
 @inline unrolled_mapreduce(f::F, op::O, itrs...; init = NoInit()) where {F, O} =
     unrolled_reduce(op, unrolled_map(f, itrs...), init)
 
@@ -272,14 +303,19 @@ include("manually_unrolled_functions.jl")
 ##
 
 # Sum and prod only need init when itr is empty, so it can be ignored otherwise.
+# The (f, itr, init) positional form avoids Core.kwcall on GPU paths.
+# There is no (itr, init) positional form because it is ambiguous with (f, itr).
 
-@inline unrolled_sum(itr; init = 0) = unrolled_sum(identity, itr; init)
-@inline unrolled_sum(f::F, itr; init = 0) where {F} =
-    isempty(itr) ? init : unrolled_mapreduce(f, +, itr)
+@inline unrolled_sum(f::F, itr, init) where {F} =
+    isempty(itr) ? init_value(init) : unrolled_mapreduce(f, +, itr)
+@inline unrolled_sum(itr; init = 0) = unrolled_sum(identity, itr, init)
+@inline unrolled_sum(f::F, itr; init = 0) where {F} = unrolled_sum(f, itr, init)
 
-@inline unrolled_prod(itr; init = 1) = unrolled_prod(identity, itr; init)
+@inline unrolled_prod(f::F, itr, init) where {F} =
+    isempty(itr) ? init_value(init) : unrolled_mapreduce(f, *, itr)
+@inline unrolled_prod(itr; init = 1) = unrolled_prod(identity, itr, init)
 @inline unrolled_prod(f::F, itr; init = 1) where {F} =
-    isempty(itr) ? init : unrolled_mapreduce(f, *, itr)
+    unrolled_prod(f, itr, init)
 
 @inline unrolled_cumsum(itr) = unrolled_cumsum(identity, itr)
 @inline unrolled_cumsum(f::F, itr) where {F} =

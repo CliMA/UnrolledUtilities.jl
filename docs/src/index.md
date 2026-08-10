@@ -50,18 +50,24 @@ iterators (in terms of both performance and compilation time):
 - `unrolled_any([f], itr)`—similar to `any`
 - `unrolled_all([f], itr)`—similar to `all`
 - `unrolled_foreach(f, itrs...)`—similar to `foreach`
-- `unrolled_reduce(op, itr; [init])`—similar to `reduce` (i.e., `foldl`)
-- `unrolled_mapreduce(f, op, itrs...; [init])`—similar to `mapreduce` (i.e.,
-  `mapfoldl`)
-- `unrolled_accumulate(op, itr; [init])`—similar to `accumulate`
+- `unrolled_reduce(op, itr; [init])` / `unrolled_reduce(op, itr, init)`—similar
+  to `reduce` (i.e., `foldl`). The positional `init` form avoids `Core.kwcall`
+  and is safe for GPU kernels.
+- `unrolled_mapreduce(f, op, itrs...; [init])` /
+  `unrolled_mapreduce(f, op, Init(v), itrs...)`—similar to `mapreduce` (i.e.,
+  `mapfoldl`). Use `Init(v)` for GPU-safe positional dispatch through varargs.
+- `unrolled_accumulate(op, itr; [init])` / `unrolled_accumulate(op, itr, init)`
+  —similar to `accumulate`. The positional `init` form is GPU-safe.
 - `unrolled_in(item, itr)`—similar to `in`
 - `unrolled_unique([f], itr)`—similar to `unique`
 - `unrolled_allunique([f], itr)`—similar to `allunique`
 - `unrolled_allequal([f], itr)`—similar to `allequal`
-- `unrolled_sum([f], itr; [init])`—similar to `sum`, but with `init = 0` when
-  `itr` is empty
-- `unrolled_prod([f], itr; [init])`—similar to `prod`, but with `init = 1` when
-  `itr` is empty
+- `unrolled_sum([f], itr; [init])` / `unrolled_sum(f, itr, init)`—similar to
+  `sum`, but with `init = 0` when `itr` is empty. The 3-arg positional form is
+  GPU-safe.
+- `unrolled_prod([f], itr; [init])` / `unrolled_prod(f, itr, init)`—similar to
+  `prod`, but with `init = 1` when `itr` is empty. The 3-arg positional form is
+  GPU-safe.
 - `unrolled_cumsum([f], itr)`—similar to `cumsum`, but with an optional `f`
 - `unrolled_cumprod([f], itr)`—similar to `cumprod`, but with an optional `f`
 - `unrolled_count([f], itr)`—similar to `count`
@@ -109,6 +115,13 @@ exported by this package:
 
 See the [User Guide](@ref "When to Use StaticOneTo and StaticBitVector") for
 additional information about these new types of iterators.
+
+This package also exports a wrapper for the initial values of reductions and
+accumulations:
+
+```@docs
+Init
+```
 
 See the [Developer Guide](@ref "How to Use the Interface") to learn how
 user-defined iterator types can be made compatible with unrolled functions.

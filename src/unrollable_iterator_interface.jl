@@ -143,7 +143,7 @@ end
     unambiguous_output_type(output_type_for_promotion(itr)) do
         @inline
         no_init = init isa NoInit
-        arg1_type = no_init ? first_item_type(itr) : typeof(init)
+        arg1_type = no_init ? first_item_type(itr) : typeof(init_value(init))
         arg2_type = no_init ? second_item_type(itr) : first_item_type(itr)
         Base.promote_op(op, arg1_type, arg2_type)
     end

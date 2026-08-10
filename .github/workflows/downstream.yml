@@ -19,6 +19,8 @@ jobs:
   test:
     name: downstream ${{ matrix.package }}
     runs-on: ubuntu-latest
+    # Runs the full downstream test suite.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

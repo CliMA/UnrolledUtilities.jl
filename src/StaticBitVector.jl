@@ -169,10 +169,13 @@ end
     N = length(itr)
     n_bits_per_int = 8 * sizeof(U)
     n_ints = cld(N, n_bits_per_int)
-    ints = unrolled_accumulate(
+    # Each step accumulates an (int, value) pair, where the value is the last
+    # Bool accumulated into that int, so that it can initialize the next int.
+    # The init value is unwrapped here, rather than in the innermost loop, so
+    # that every accumulated value has the same type.
+    int_and_value_pairs = unrolled_accumulate(
         StaticOneTo(n_ints),
-        (nothing, init),
-        first,
+        (nothing, init_value(init)),
     ) do (_, init_value_for_new_int), int_index
         @inline
         first_index = n_bits_per_int * (int_index - 1) + 1
@@ -189,5 +192,6 @@ end
             (int | U(new_value::Bool) << bit_offset, new_value)
         end
     end
+    ints = unrolled_map_into_tuple(first, int_and_value_pairs)
     return StaticBitVector{N, U}(ints)
 end
