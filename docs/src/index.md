@@ -86,6 +86,10 @@ iterators (in terms of both performance and compilation time):
   but with a static value of `N`
 - `unrolled_drop(itr, ::Val{N})`—similar to `Iterators.drop` (i.e.,
   `itr[(N + 1):end]`), but with a static value of `N`
+- `unrolled_setindex(itr, item, ::Val{N})`—similar to `Base.setindex`, but with
+  a static value of `N`
+- `unrolled_insert(itr, item, ::Val{N})`—similar to `insert!`, but non-mutating
+  and with a static value of `N`
 
 In addition, this package exports several functions that do not have analogues
 in `Base` or `Base.Iterators`:
