@@ -71,6 +71,13 @@ end
     return StaticBitVector{N, U}(ints)
 end
 
+@inline unrolled_setindex_into(
+    ::Type{<:StaticBitVector},
+    itr,
+    bit,
+    ::Val{N},
+) where {N} = Base.setindex(itr, bit, N)
+
 @inline output_type_for_promotion(::StaticBitVector{<:Any, U}) where {U} =
     ConditionalOutputType(Bool, StaticBitVector{<:Any, U})
 
@@ -160,6 +167,16 @@ end
     return StaticBitVector{length(itr) - N, U}(ints)
 end
 
+@inline unrolled_insert_into(
+    ::Type{<:StaticBitVector},
+    itr,
+    bit,
+    ::Val{N},
+) where {N} = unrolled_append(
+    unrolled_push(unrolled_take(itr, Val(N)), bit),
+    unrolled_drop(itr, Val(N)),
+)
+
 @inline function unrolled_accumulate_into(
     ::Type{StaticBitVector{<:Any, U}},
     op,
@@ -172,7 +189,6 @@ end
     ints = unrolled_accumulate(
         StaticOneTo(n_ints),
         (nothing, init),
-        first,
     ) do (_, init_value_for_new_int), int_index
         @inline
         first_index = n_bits_per_int * (int_index - 1) + 1
@@ -189,5 +205,5 @@ end
             (int | U(new_value::Bool) << bit_offset, new_value)
         end
     end
-    return StaticBitVector{N, U}(ints)
+    return StaticBitVector{N, U}(unrolled_map(first, ints))
 end

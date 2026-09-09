@@ -451,17 +451,17 @@ macro test_unrolled(
     end
 end
 
-tuple_of_tuples(num_tuples, min_tuple_length, singleton, identical) =
+tuple_of_tuples(num_tuples, min_length, singleton, identical) =
     ntuple(num_tuples) do index
-        tuple_length = min_tuple_length + (identical ? 0 : (index - 1) % 7)
+        # When !identical, extra_length is (0, 1, 1, 2, 2, 2, 3, 3, 3, 3, ...),
+        # up to a maximum tuple length of 7.
+        extra_length = identical ? 0 : ceil(Int, (sqrt(8 * index + 1) - 3) / 2)
+        tuple_length = min_length + extra_length % (8 - min_length)
         ntuple(singleton ? Val : identity, tuple_length)
     end
 function tuples_of_tuples_contents_str(itrs...)
     str = ""
-    all(itr -> length(itr) > 1 && length(unique(itr)) == 1, itrs) &&
-        (str *= "identical ")
-    all(itr -> length(itr) > 1 && length(unique(itr)) != 1, itrs) &&
-        (str *= "distinct ")
+    all(itr -> length(itr) > 1 && allequal(itr), itrs) && (str *= "identical ")
     all(itr -> all(isempty, itr), itrs) && (str *= "empty ")
     all(itr -> all(!isempty, itr), itrs) && (str *= "nonempty ")
     all(itr -> any(isempty, itr) && any(!isempty, itr), itrs) &&
@@ -474,7 +474,7 @@ function tuples_of_tuples_contents_str(itrs...)
     return str
 end
 
-itr_lengths = "fast_mode" in ARGS ? (8,) : (2, 4, 8, 32, 128)
+itr_lengths = "fast_mode" in ARGS ? (8,) : (2, 8, 32, 128)
 
 # NOTE: In the tests below, random numbers are meant to emulate values that
 # cannot be inferred during compilation.
@@ -520,6 +520,27 @@ for itr in (
             (itr,),
             unrolled_drop(itr, Val(length(itr) ÷ 2)),
             itr[(length(itr) ÷ 2 + 1):end],
+            str,
+        )
+
+        @test_unrolled(
+            (itr,),
+            unrolled_setindex(itr, itr[1], Val(length(itr) ÷ 2 + 1)),
+            (
+                itr[1:(length(itr) ÷ 2)]...,
+                itr[1],
+                itr[(length(itr) ÷ 2 + 2):end]...,
+            ),
+            str,
+        )
+        @test_unrolled(
+            (itr,),
+            unrolled_insert(itr, itr[1], Val(length(itr) ÷ 2 + 1)),
+            (
+                itr[1:(length(itr) ÷ 2)]...,
+                itr[1],
+                itr[(length(itr) ÷ 2 + 1):end]...,
+            ),
             str,
         )
 
@@ -586,8 +607,8 @@ for itr in (
 
         @test_unrolled(
             (itr,),
-            unrolled_applyat(length, rand(1:7:length(itr)), itr),
-            length(itr[rand(1:7:length(itr))]),
+            unrolled_applyat(x -> length(x) <= 7, rand(1:length(itr)), itr),
+            length(itr[rand(1:length(itr))]) <= 7,
             str,
         )
 
@@ -864,11 +885,11 @@ for (itr1, itr2, itr3) in (
         @test_unrolled(
             (itr1, itr2),
             unrolled_foreach(
-                (x1, x2) -> @assert(x1 == unrolled_take(x2, Val(length(x1)))),
+                (x1, x2) -> @assert(unrolled_all(unrolled_map(==, x1, x2))),
                 itr1,
                 itr2,
             ),
-            foreach((x1, x2) -> @assert(x1 == x2[1:length(x1)]), itr1, itr2),
+            foreach((x1, x2) -> @assert(all(map(==, x1, x2))), itr1, itr2),
             str12,
         )
         @test_unrolled(
@@ -885,13 +906,13 @@ for (itr1, itr2, itr3) in (
         @test_unrolled(
             (itr1, itr2),
             unrolled_applyat(
-                (x1, x2) -> @assert(x1 == unrolled_take(x2, Val(length(x1)))),
+                (x1, x2) -> @assert(unrolled_all(unrolled_map(==, x1, x2))),
                 rand(1:length(itr1)),
                 itr1,
                 itr2,
             ),
             let n = rand(1:length(itr1))
-                @assert(itr1[n] == itr2[n][1:length(itr1[n])])
+                @assert(all(map(==, itr1[n], itr2[n])))
             end,
             str12,
         )
