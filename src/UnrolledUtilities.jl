@@ -114,7 +114,7 @@ include("StaticBitVector.jl")
         end,
     )
 @inline unrolled_push(itr, item) =
-    unrolled_push_into(inferred_output_type(itr), itr, item)
+    unrolled_push_into(inferred_output_type(itr, item), itr, item)
 @inline unrolled_push(itr, items...) =
     unrolled_reduce(unrolled_push, items, itr)
 
@@ -126,6 +126,8 @@ include("StaticBitVector.jl")
             generic_getindex(itr2, n - length(itr1))
         end,
     )
+@inline unrolled_append(itr1::Tuple, itr2::Tuple) =
+    unrolled_append_into(Tuple, itr1, itr2)
 @inline unrolled_append(itr1, itr2) =
     unrolled_append_into(promoted_output_type(itr1, itr2), itr1, itr2)
 @inline unrolled_append(itr, itrs...) =
@@ -134,19 +136,35 @@ include("StaticBitVector.jl")
 @inline unrolled_prepend(itr, itrs...) = unrolled_append(itrs..., itr)
 
 @inline unrolled_take_into(output_type, itr, ::Val{N}) where {N} =
+    N < 0 || N > length(itr) ? Base.throw_boundserror(itr, N) :
     constructor_from_tuple(output_type)(
         ntuple(Base.Fix1(generic_getindex, itr), Val(N)),
     )
+@inline unrolled_take_into(
+    ::Type{NamedTuple{names}},
+    itr,
+    ::Val{N},
+) where {names, N} = NamedTuple{unrolled_take(names, Val(N))}(
+    unrolled_take_into(Tuple, itr, Val(N)),
+)
 @inline unrolled_take(itr, val_N) =
     unrolled_take_into(inferred_output_type(itr), itr, val_N)
 
 @inline unrolled_drop_into(output_type, itr, ::Val{N}) where {N} =
+    N < 0 || N > length(itr) ? Base.throw_boundserror(itr, N) :
     constructor_from_tuple(output_type)(
         ntuple(
             Base.Fix1(generic_getindex, itr) ⋅ Base.Fix1(+, N),
             Val(length(itr) - N),
         ),
     )
+@inline unrolled_drop_into(
+    ::Type{NamedTuple{names}},
+    itr,
+    ::Val{N},
+) where {names, N} = NamedTuple{unrolled_drop(names, Val(N))}(
+    unrolled_drop_into(Tuple, itr, Val(N)),
+)
 @inline unrolled_drop(itr, val_N) =
     unrolled_drop_into(inferred_output_type(itr), itr, val_N)
 
@@ -159,7 +177,7 @@ include("StaticBitVector.jl")
         end,
     )
 @inline unrolled_setindex(itr, item, val_N) =
-    unrolled_setindex_into(inferred_output_type(itr), itr, item, val_N)
+    unrolled_setindex_into(inferred_output_type(itr, item), itr, item, val_N)
 
 @inline unrolled_insert_into(output_type, itr, item, ::Val{N}) where {N} =
     N < 1 || N > length(itr) + 1 ? Base.throw_boundserror(itr, N) :
@@ -170,7 +188,7 @@ include("StaticBitVector.jl")
         end,
     )
 @inline unrolled_insert(itr, item, val_N) =
-    unrolled_insert_into(inferred_output_type(itr), itr, item, val_N)
+    unrolled_insert_into(inferred_output_type(itr, item), itr, item, val_N)
 
 ##
 ## Functions unrolled using either hard-coded or generated expressions
@@ -288,52 +306,64 @@ end
 # on the index, since a range like StaticOneTo(n - 1) would need constant
 # propagation of n through the closure to have an inferrable type, which
 # cannot be relied on across Julia versions.
+# The values of f are computed lazily for singleton functions, whose calls can
+# be constant folded, and once per item for all other callables (e.g., stateful
+# structs), whose calls may be expensive or have side effects.
+@inline mapped_values(f::F, itr) where {F} =
+    Base.issingletontype(F) ? Iterators.map(f, itr) :
+    unrolled_map_into_tuple(f, itr)
+
+@inline function is_first_occurrence(values, n)
+    value_n = generic_getindex(values, n)
+    return unrolled_all(static_range(values)) do m
+        @inline
+        m >= n || generic_getindex(values, m) !== value_n
+    end
+end
+
 @inline unrolled_unique(itr) = unrolled_unique(identity, itr)
 @inline unrolled_unique(f::F, itr) where {F} =
     unrolled_unique_into(inferred_output_type(itr), f, itr)
-@inline unrolled_unique_into(output_type, f::F, itr) where {F} =
-    unrolled_flatmap_into(output_type, static_range(itr)) do n
+@inline function unrolled_unique_into(output_type, f::F, itr) where {F}
+    f_values = mapped_values(f, itr)
+    return unrolled_flatmap_into(output_type, static_range(itr)) do n
         @inline
-        f_value_n = f(generic_getindex(itr, n))
-        is_unique_value = unrolled_all(static_range(itr)) do m
-            @inline
-            m >= n || f(generic_getindex(itr, m)) !== f_value_n
-        end
-        is_unique_value ? (generic_getindex(itr, n),) : ()
+        is_first_occurrence(f_values, n) ? (generic_getindex(itr, n),) : ()
     end
+end
 
 @inline unrolled_allunique(itr) = unrolled_allunique(identity, itr)
-@inline unrolled_allunique(f::F, itr) where {F} =
-    unrolled_all(static_range(itr)) do n
+@inline function unrolled_allunique(f::F, itr) where {F}
+    f_values = mapped_values(f, itr)
+    return unrolled_all(static_range(itr)) do n
         @inline
-        f_value_n = f(generic_getindex(itr, n))
-        unrolled_all(static_range(itr)) do m
-            @inline
-            m >= n || f(generic_getindex(itr, m)) !== f_value_n
-        end
+        is_first_occurrence(f_values, n)
     end
+end
 
 @inline unrolled_allequal(itr) = unrolled_allequal(identity, itr)
-@inline unrolled_allequal(f::F, itr) where {F} =
-    isempty(itr) ? true :
-    unrolled_all(
-        Base.Fix1(===, f(generic_getindex(itr, 1))) ⋅ f,
-        unrolled_drop(itr, Val(1)),
-    )
+@inline function unrolled_allequal(f::F, itr) where {F}
+    length(itr) <= 1 && return true
+    f_first = f(generic_getindex(itr, 1))
+    return unrolled_all(StaticOneTo(length(itr) - 1)) do n
+        @inline
+        f(generic_getindex(itr, n + 1)) === f_first
+    end
+end
 
 ##
 ## Unrolled analogues of functions from base/reduce.jl and base/accumulate.jl
 ##
 
-# Sum and prod only need init when itr is empty, so it can be ignored otherwise.
+@inline unrolled_sum(itr; init = NoInit()) = unrolled_sum(identity, itr; init)
+@inline unrolled_sum(f::F, itr; init = NoInit()) where {F} =
+    isempty(itr) ? (init isa NoInit ? 0 : init) :
+    unrolled_mapreduce(f, +, itr; init)
 
-@inline unrolled_sum(itr; init = 0) = unrolled_sum(identity, itr; init)
-@inline unrolled_sum(f::F, itr; init = 0) where {F} =
-    isempty(itr) ? init : unrolled_mapreduce(f, +, itr)
-
-@inline unrolled_prod(itr; init = 1) = unrolled_prod(identity, itr; init)
-@inline unrolled_prod(f::F, itr; init = 1) where {F} =
-    isempty(itr) ? init : unrolled_mapreduce(f, *, itr)
+@inline unrolled_prod(itr; init = NoInit()) = unrolled_prod(identity, itr; init)
+@inline unrolled_prod(f::F, itr; init = NoInit()) where {F} =
+    isempty(itr) ? (init isa NoInit ? 1 : init) :
+    unrolled_mapreduce(f, *, itr; init)
 
 @inline unrolled_cumsum(itr) = unrolled_cumsum(identity, itr)
 @inline unrolled_cumsum(f::F, itr) where {F} =
@@ -344,7 +374,7 @@ end
     unrolled_accumulate(*, unrolled_map(f, itr))
 
 @inline unrolled_count(itr) = unrolled_count(identity, itr)
-@inline unrolled_count(f::F, itr) where {F} = unrolled_sum(Bool ⋅ f, itr)
+@inline unrolled_count(f::F, itr) where {F} = unrolled_sum(Int ⋅ Bool ⋅ f, itr)
 
 @inline unrolled_maximum(itr) = unrolled_maximum(identity, itr)
 @inline unrolled_maximum(f::F, itr) where {F} = unrolled_mapreduce(f, max, itr)
@@ -362,8 +392,16 @@ end
         (f_value, f_value)
     end
 
+# To match Base.findmax and Base.findmin, the reduction operators compare values
+# with isless and isgreater, which order NaN after all other values and missing
+# after NaN. This isgreater is equivalent to Base.isgreater, but it is arranged
+# so that Julia 1.10 constant folds it for wide heterogeneous inputs with
+# constant values (see unrolled_argmin in test/compilation_limits.jl).
+@inline isgreater(x, y) =
+    isunordered(x) ? isless(x, y) : isunordered(y) || isless(y, x)
+
 @inline findmax_reduction_operator((f_value1, value1), (f_value2, value2)) =
-    f_value1 < f_value2 ? (f_value2, value2) : (f_value1, value1)
+    isless(f_value1, f_value2) ? (f_value2, value2) : (f_value1, value1)
 @inline unrolled_findmax(itr) = unrolled_findmax(identity, itr)
 @inline unrolled_findmax(f::F, itr) where {F} =
     unrolled_mapreduce(findmax_reduction_operator, enumerate(itr)) do (n, item)
@@ -372,7 +410,7 @@ end
     end
 
 @inline findmin_reduction_operator((f_value1, value1), (f_value2, value2)) =
-    f_value1 > f_value2 ? (f_value2, value2) : (f_value1, value1)
+    isgreater(f_value1, f_value2) ? (f_value2, value2) : (f_value1, value1)
 @inline unrolled_findmin(itr) = unrolled_findmin(identity, itr)
 @inline unrolled_findmin(f::F, itr) where {F} =
     unrolled_mapreduce(findmin_reduction_operator, enumerate(itr)) do (n, item)
@@ -529,18 +567,37 @@ end
 ## Additional instructions for compilation
 ##
 
-# Remove the default recursion limit from every method defined in this module,
-# including the Core.kwcall methods generated by keyword argument functions.
+# Remove the default recursion limit from every method defined in this module.
+# Methods are looked up by the type of their first argument, which finds the
+# methods of closures and constructors in addition to those of functions, and
+# also finds this module's methods for functions from Base and Core.
 @static if hasfield(Method, :recursion_relation)
-    module_names = names(@__MODULE__; all = true)
-    module_values = map(Base.Fix1(getproperty, @__MODULE__), module_names)
-    module_functions = filter(Base.Fix2(isa, Function), module_values)
-    for f in module_functions, method in methods(f)
-        method.recursion_relation = Returns(true)
+    world = Base.get_world_counter()
+    remove_recursion_limit(first_arg_type) =
+        for match in Base._methods_by_ftype(
+            Tuple{first_arg_type, Vararg{Any}},
+            -1,
+            world,
+        )
+            match.method.module === (@__MODULE__) || continue
+            match.method.recursion_relation = Returns(true)
+        end
+    for name in names(@__MODULE__; all = true)
+        value = getproperty(@__MODULE__, name)
+        value isa Function && remove_recursion_limit(typeof(value))
+        value isa Type && remove_recursion_limit(value)
+        value isa Type && remove_recursion_limit(Type{<:value})
     end
-    for method in methods(Core.kwcall)
-        method.module === (@__MODULE__) || continue
-        method.recursion_relation = Returns(true)
+    for f in (
+        Core.kwcall,
+        Base.length,
+        Base.firstindex,
+        Base.lastindex,
+        Base.getindex,
+        Base.setindex,
+        Base.iterate,
+    )
+        remove_recursion_limit(typeof(f))
     end
 end
 

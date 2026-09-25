@@ -8,8 +8,8 @@ default, `U` is set to `UInt8` and `bit` is set to `false`.
 
 This iterator can only store `Bool`s, so its `output_type_for_promotion` is a
 `ConditionalOutputType`. Efficient implementations are provided for all unrolled
-functions, though the methods for `unrolled_map` and `unrolled_accumulate` only
-apply when the first item in the output is a `Bool`.
+functions; when all output items are `Bool`s, the output is a `StaticBitVector`,
+and otherwise it falls back to `Tuple`.
 """
 struct StaticBitVector{N, U <: Unsigned, I <: NTuple{<:Any, U}} <:
        StaticSequence{N}
@@ -73,13 +73,19 @@ end
 
 @inline unrolled_setindex_into(
     ::Type{<:StaticBitVector},
-    itr,
-    bit,
+    itr::StaticBitVector,
+    bit::Bool,
     ::Val{N},
-) where {N} = Base.setindex(itr, bit, N)
+) where {N} =
+    N < 1 || N > length(itr) ? Base.throw_boundserror(itr, N) :
+    Base.setindex(itr, bit, N)
 
 @inline output_type_for_promotion(::StaticBitVector{<:Any, U}) where {U} =
     ConditionalOutputType(Bool, StaticBitVector{<:Any, U})
+
+@inline constructor_from_tuple(::Type{StaticBitVector{<:Any, U}}) where {U} =
+    items ->
+        StaticBitVector{length(items), U}(Base.Fix1(generic_getindex, items))
 
 @inline empty_output(::Type{StaticBitVector{<:Any, U}}) where {U} =
     StaticBitVector{0, U}()
@@ -91,8 +97,8 @@ end
 
 @inline function unrolled_push_into(
     ::Type{StaticBitVector{<:Any, U}},
-    itr,
-    bit,
+    itr::StaticBitVector{<:Any, U},
+    bit::Bool,
 ) where {U}
     n_bits_per_int = 8 * sizeof(U)
     n_ints = cld(length(itr), n_bits_per_int)
@@ -110,8 +116,8 @@ end
 
 @inline function unrolled_append_into(
     ::Type{StaticBitVector{<:Any, U}},
-    itr1,
-    itr2,
+    itr1::StaticBitVector{<:Any, U},
+    itr2::StaticBitVector{<:Any, U},
 ) where {U}
     n_bits_per_int = 8 * sizeof(U)
     n_ints1 = cld(length(itr1), n_bits_per_int)
@@ -133,9 +139,10 @@ end
 
 @inline function unrolled_take_into(
     ::Type{StaticBitVector{<:Any, U}},
-    itr,
+    itr::StaticBitVector{<:Any, U},
     ::Val{N},
 ) where {N, U}
+    (N < 0 || N > length(itr)) && Base.throw_boundserror(itr, N)
     n_bits_per_int = 8 * sizeof(U)
     n_ints = cld(N, n_bits_per_int)
     ints = unrolled_take(itr.ints, Val(n_ints))
@@ -144,9 +151,10 @@ end
 
 @inline function unrolled_drop_into(
     ::Type{StaticBitVector{<:Any, U}},
-    itr,
+    itr::StaticBitVector{<:Any, U},
     ::Val{N},
 ) where {N, U}
+    (N < 0 || N > length(itr)) && Base.throw_boundserror(itr, N)
     n_bits_per_int = 8 * sizeof(U)
     n_ints = cld(length(itr) - N, n_bits_per_int)
     n_dropped_ints = fld(N, n_bits_per_int)
@@ -164,18 +172,20 @@ end
             cur_int >> bit_offset | next_int << (n_bits_per_int - bit_offset)
         end
     end
-    return StaticBitVector{length(itr) - N, U}(ints)
+    return StaticBitVector{length(itr) - N, U}(unrolled_take(ints, Val(n_ints)))
 end
 
 @inline unrolled_insert_into(
     ::Type{<:StaticBitVector},
-    itr,
-    bit,
+    itr::StaticBitVector,
+    bit::Bool,
     ::Val{N},
-) where {N} = unrolled_append(
-    unrolled_push(unrolled_take(itr, Val(N)), bit),
-    unrolled_drop(itr, Val(N)),
-)
+) where {N} =
+    N < 1 || N > length(itr) + 1 ? Base.throw_boundserror(itr, N) :
+    unrolled_append(
+        unrolled_push(unrolled_take(itr, Val(N - 1)), bit),
+        unrolled_drop(itr, Val(N - 1)),
+    )
 
 @inline function unrolled_accumulate_into(
     ::Type{StaticBitVector{<:Any, U}},

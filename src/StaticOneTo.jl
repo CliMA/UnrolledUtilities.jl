@@ -14,5 +14,7 @@ struct StaticOneTo{N} <: StaticSequence{N} end
 @inline generic_getindex(::StaticOneTo, n) = n
 
 @inline output_type_for_promotion(::StaticOneTo) = NoOutputType()
+@inline eltype_for_promotion(::StaticOneTo) = Int
 
-@inline unrolled_take(::StaticOneTo, ::Val{N}) where {N} = StaticOneTo(N)
+@inline unrolled_take(r::StaticOneTo, ::Val{N}) where {N} =
+    N < 0 || N > length(r) ? Base.throw_boundserror(r, N) : StaticOneTo(N)
