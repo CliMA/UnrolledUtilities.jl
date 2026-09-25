@@ -222,7 +222,9 @@ end
 end
 
 @testset "baseline: wide StaticBitVector inputs" begin
-    WIDE_BITS = StaticBitVector{256}(isodd)
+    # 38 UInt8 words, which exceeds the 32-item splat limit, with a partial
+    # last word.
+    WIDE_BITS = StaticBitVector{300}(isodd)
     test_unrolled(unrolled_push, WIDE_BITS, true)
     test_unrolled(unrolled_append, WIDE_BITS, WIDE_BITS)
     test_unrolled(unrolled_prepend, WIDE_BITS, WIDE_BITS)
