@@ -149,6 +149,8 @@ end
           (true, true, 10, 20)
     @test unrolled_append(StaticBitVector{2}(true), (true, 42)) ===
           (true, true, true, 42)
+    @test unrolled_map((b, x) -> x, StaticBitVector{2}(true), (true, 42)) ===
+          (true, 42)
     @test unrolled_push(StaticBitVector{2}(true), 42) == (true, true, 42)
     @test unrolled_setindex(StaticBitVector{2}(true), 42, Val(1)) == (42, true)
     @test unrolled_insert(StaticBitVector{2}(true), 42, Val(2)) ==
@@ -211,4 +213,15 @@ end
         @test isequal(unrolled_findmax(itr), findmax(itr))
         @test isequal(unrolled_findmin(itr), findmin(itr))
     end
+end
+
+@testset "unrolled_map and unrolled_foreach fast paths" begin
+    @test unrolled_map((x, y, z) -> x + y + z, (1, 2), (10, 20), (100, 200)) ===
+          (111, 222)
+    @test unrolled_map(+, (a = 1, b = 2), (a = 10, b = 20)) === (a = 11, b = 22)
+    @test unrolled_map(+, SVector(1, 2, 3), SVector(10, 20, 30)) ===
+          SVector(11, 22, 33)
+    acc = Ref(0)
+    unrolled_foreach((x, y) -> (acc[] += x + y), SVector(1, 2), SVector(10, 20))
+    @test acc[] == 33
 end

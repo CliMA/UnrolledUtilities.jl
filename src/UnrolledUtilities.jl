@@ -63,6 +63,11 @@ struct NoInit end
 @inline first_reduction_value(op, itr, init) =
     op(init, generic_getindex(itr, 1))
 
+@inline first_mapreduce_value(f, op, itr, ::NoInit) =
+    f(generic_getindex(itr, 1))
+@inline first_mapreduce_value(f, op, itr, init) =
+    op(init, f(generic_getindex(itr, 1)))
+
 # Analogue of ∘, but with only one function argument and guaranteed inlining.
 # Base's ∘ leads to type instabilities in unit tests on Julia 1.10 and 1.11.
 @inline ⋅(f1::F1, f2::F2) where {F1, F2} = x -> (@inline f1(f2(x)))
@@ -107,7 +112,7 @@ include("StaticBitVector.jl")
 # Avoid the max_tuple_splat limit of 32 items from base/compiler/types.jl.
 @inline unrolled_push_into(output_type, itr, item) =
     constructor_from_tuple(output_type)(
-        length(itr) <= 32 ? (itr..., item) :
+        itr isa Tuple && length(itr) <= 32 ? (itr..., item) :
         ntuple(Val(length(itr) + 1)) do n
             @inline
             n <= length(itr) ? generic_getindex(itr, n) : item
@@ -120,6 +125,8 @@ include("StaticBitVector.jl")
 
 @inline unrolled_append_into(output_type, itr1, itr2) =
     constructor_from_tuple(output_type)(
+        itr1 isa Tuple && itr2 isa Tuple && length(itr1) + length(itr2) <= 32 ?
+        (itr1..., itr2...) :
         ntuple(Val(length(itr1) + length(itr2))) do n
             @inline
             n <= length(itr1) ? generic_getindex(itr1, n) :
@@ -131,7 +138,7 @@ include("StaticBitVector.jl")
 @inline unrolled_append(itr1, itr2) =
     unrolled_append_into(promoted_output_type(itr1, itr2), itr1, itr2)
 @inline unrolled_append(itr, itrs...) =
-    unrolled_reduce(unrolled_append, itrs, itr)
+    _unrolled_flatten(Val(1 + length(itrs)), Val(1), (itr, itrs...))
 
 @inline unrolled_prepend(itr, itrs...) = unrolled_append(itrs..., itr)
 
@@ -214,21 +221,40 @@ include("manually_unrolled_functions.jl")
 @inline unrolled_map(f::F, itrs...) where {F} =
     unrolled_map(splat(f), zip(itrs...))
 
-# Add a fast path for tuples to reduce latency/allocations during compilation,
-# and replace @inline with @propagate_inbounds to support indexing operations.
-# NOTE: It might be a good idea to generalize this for other unrolled functions.
-@generated unrolled_map(f, itr::NTuple{N, Any}) where {N} = quote
-    Base.@_propagate_inbounds_meta
-    return Base.Cartesian.@ntuple $N n -> f(itr[n])
-end
-@generated unrolled_map(
-    f,
-    itr1::NTuple{N1, Any},
-    itr2::NTuple{N2, Any},
-) where {N1, N2} = quote
-    Base.@_propagate_inbounds_meta
-    return Base.Cartesian.@ntuple $(min(N1, N2)) n -> f(itr1[n], itr2[n])
-end
+# Fast paths for common container types and small tuples to avoid
+# Base.promote_op inference queries in inferred_output_type.
+Base.@propagate_inbounds unrolled_map(f::F, itr::Tuple) where {F} =
+    unrolled_map_into_tuple(f, itr)
+
+Base.@propagate_inbounds unrolled_map(f::F, ::Tuple{}, ::Tuple{}) where {F} = ()
+Base.@propagate_inbounds unrolled_map(
+    f::F,
+    itr1::Tuple{Any},
+    itr2::Tuple{Any},
+) where {F} = (f(itr1[1], itr2[1]),)
+Base.@propagate_inbounds unrolled_map(
+    f::F,
+    itr1::Tuple{Any, Any},
+    itr2::Tuple{Any, Any},
+) where {F} = (f(itr1[1], itr2[1]), f(itr1[2], itr2[2]))
+Base.@propagate_inbounds unrolled_map(
+    f::F,
+    itr1::Tuple{Any, Any, Any},
+    itr2::Tuple{Any, Any, Any},
+) where {F} = (f(itr1[1], itr2[1]), f(itr1[2], itr2[2]), f(itr1[3], itr2[3]))
+@inline unrolled_map(
+    f::F,
+    itr::Iterators.Zip{<:Tuple{Vararg{Tuple}}},
+) where {F} = unrolled_map_into_tuple(f, itr)
+@inline unrolled_map(f::F, nt::NamedTuple{names}) where {F, names} =
+    NamedTuple{names}(unrolled_map(f, Tuple(nt)))
+@inline unrolled_map(
+    f::F,
+    nt1::NamedTuple{names},
+    nt2::NamedTuple{names},
+) where {F, names} = NamedTuple{names}(unrolled_map(f, Tuple(nt1), Tuple(nt2)))
+@inline unrolled_map(f::F, r::StaticOneTo) where {F} =
+    unrolled_map_into_tuple(f, r)
 
 @inline unrolled_any(itr) = unrolled_any(identity, itr)
 @inline unrolled_any(f::F, itr) where {F} =
@@ -242,13 +268,55 @@ end
     _unrolled_foreach(Val(length(itr)), f, itr)
 @inline unrolled_foreach(f, itrs...) = unrolled_foreach(splat(f), zip(itrs...))
 
+@inline unrolled_foreach(f::F, ::Tuple{}, ::Tuple{}) where {F} = nothing
+@inline function unrolled_foreach(
+    f::F,
+    itr1::Tuple{Any},
+    itr2::Tuple{Any},
+) where {F}
+    f(itr1[1], itr2[1])
+    return nothing
+end
+@inline function unrolled_foreach(
+    f::F,
+    itr1::Tuple{Any, Any},
+    itr2::Tuple{Any, Any},
+) where {F}
+    f(itr1[1], itr2[1])
+    f(itr1[2], itr2[2])
+    return nothing
+end
+@inline function unrolled_foreach(
+    f::F,
+    itr1::Tuple{Any, Any, Any},
+    itr2::Tuple{Any, Any, Any},
+) where {F}
+    f(itr1[1], itr2[1])
+    f(itr1[2], itr2[2])
+    f(itr1[3], itr2[3])
+    return nothing
+end
+
 @inline unrolled_reduce(op::O, itr, init) where {O} =
     _unrolled_reduce(Val(length(itr)), op, itr, init)
 @inline unrolled_reduce(op::O, itr; init = NoInit()) where {O} =
     unrolled_reduce(op, itr, init)
 
+@inline unrolled_mapreduce(f::F, op::O, itr; init = NoInit()) where {F, O} =
+    fused_mapreduce(f, op, itr, init)
 @inline unrolled_mapreduce(f::F, op::O, itrs...; init = NoInit()) where {F, O} =
-    unrolled_reduce(op, unrolled_map(f, itrs...), init)
+    _unrolled_mapreduce(
+        Val(length(zip(itrs...))),
+        splat(f),
+        op,
+        zip(itrs...),
+        init,
+    )
+
+# Internal calls use this method to skip the keyword-argument method of
+# unrolled_mapreduce, which is one more method for the compiler to infer.
+@inline fused_mapreduce(f::F, op::O, itr, init = NoInit()) where {F, O} =
+    _unrolled_mapreduce(Val(length(itr)), f, op, itr, init)
 
 @inline unrolled_accumulate_into_tuple(op::O, itr, init) where {O} =
     _unrolled_accumulate(Val(length(itr)), op, itr, init)
@@ -256,6 +324,8 @@ end
     constructor_from_tuple(output_type)(
         unrolled_accumulate_into_tuple(op, itr, init),
     )
+@inline unrolled_accumulate(op::O, itr::Tuple, init) where {O} =
+    unrolled_accumulate_into_tuple(op, itr, init)
 @inline unrolled_accumulate(op::O, itr, init) where {O} =
     unrolled_accumulate_into(
         unrolled_accumulate_output_type(op, itr, init),
@@ -361,42 +431,45 @@ end
 ## Unrolled analogues of functions from base/reduce.jl and base/accumulate.jl
 ##
 
-@inline unrolled_sum(itr; init = NoInit()) = unrolled_sum(identity, itr; init)
+@inline unrolled_sum(itr; init = NoInit()) = _unrolled_sum(identity, itr, init)
 @inline unrolled_sum(f::F, itr; init = NoInit()) where {F} =
+    _unrolled_sum(f, itr, init)
+@inline _unrolled_sum(f::F, itr, init) where {F} =
     isempty(itr) ? (init isa NoInit ? 0 : init) :
-    unrolled_mapreduce(f, +, itr; init)
+    fused_mapreduce(f, +, itr, init)
 
-@inline unrolled_prod(itr; init = NoInit()) = unrolled_prod(identity, itr; init)
+@inline unrolled_prod(itr; init = NoInit()) =
+    _unrolled_prod(identity, itr, init)
 @inline unrolled_prod(f::F, itr; init = NoInit()) where {F} =
+    _unrolled_prod(f, itr, init)
+@inline _unrolled_prod(f::F, itr, init) where {F} =
     isempty(itr) ? (init isa NoInit ? 1 : init) :
-    unrolled_mapreduce(f, *, itr; init)
+    fused_mapreduce(f, *, itr, init)
 
-@inline unrolled_cumsum(itr) = unrolled_cumsum(identity, itr)
+@inline unrolled_cumsum(itr) = unrolled_accumulate(+, itr, NoInit())
 @inline unrolled_cumsum(f::F, itr) where {F} =
-    unrolled_accumulate(+, unrolled_map(f, itr))
+    unrolled_accumulate(+, Iterators.map(f, itr), NoInit())
 
-@inline unrolled_cumprod(itr) = unrolled_cumprod(identity, itr)
+@inline unrolled_cumprod(itr) = unrolled_accumulate(*, itr, NoInit())
 @inline unrolled_cumprod(f::F, itr) where {F} =
-    unrolled_accumulate(*, unrolled_map(f, itr))
+    unrolled_accumulate(*, Iterators.map(f, itr), NoInit())
 
 @inline unrolled_count(itr) = unrolled_count(identity, itr)
-@inline unrolled_count(f::F, itr) where {F} = unrolled_sum(Int ⋅ Bool ⋅ f, itr)
+@inline unrolled_count(f::F, itr) where {F} =
+    _unrolled_sum(Int ⋅ Bool ⋅ f, itr, NoInit())
 
 @inline unrolled_maximum(itr) = unrolled_maximum(identity, itr)
-@inline unrolled_maximum(f::F, itr) where {F} = unrolled_mapreduce(f, max, itr)
+@inline unrolled_maximum(f::F, itr) where {F} = fused_mapreduce(f, max, itr)
 
 @inline unrolled_minimum(itr) = unrolled_minimum(identity, itr)
-@inline unrolled_minimum(f::F, itr) where {F} = unrolled_mapreduce(f, min, itr)
+@inline unrolled_minimum(f::F, itr) where {F} = fused_mapreduce(f, min, itr)
 
+@inline duplicate(x) = (x, x)
 @inline extrema_reduction_operator((f_min1, f_max1), (f_min2, f_max2)) =
     (min(f_min1, f_min2), max(f_max1, f_max2))
 @inline unrolled_extrema(itr) = unrolled_extrema(identity, itr)
 @inline unrolled_extrema(f::F, itr) where {F} =
-    unrolled_mapreduce(extrema_reduction_operator, itr) do item
-        @inline
-        f_value = f(item)
-        (f_value, f_value)
-    end
+    fused_mapreduce(duplicate ⋅ f, extrema_reduction_operator, itr)
 
 # To match Base.findmax and Base.findmin, the reduction operators compare values
 # with isless and isgreater, which order NaN after all other values and missing
@@ -410,7 +483,7 @@ end
     isless(f_value1, f_value2) ? (f_value2, value2) : (f_value1, value1)
 @inline unrolled_findmax(itr) = unrolled_findmax(identity, itr)
 @inline unrolled_findmax(f::F, itr) where {F} =
-    unrolled_mapreduce(findmax_reduction_operator, enumerate(itr)) do (n, item)
+    fused_mapreduce(findmax_reduction_operator, enumerate(itr)) do (n, item)
         @inline
         (f(item), n)
     end
@@ -419,21 +492,21 @@ end
     isgreater(f_value1, f_value2) ? (f_value2, value2) : (f_value1, value1)
 @inline unrolled_findmin(itr) = unrolled_findmin(identity, itr)
 @inline unrolled_findmin(f::F, itr) where {F} =
-    unrolled_mapreduce(findmin_reduction_operator, enumerate(itr)) do (n, item)
+    fused_mapreduce(findmin_reduction_operator, enumerate(itr)) do (n, item)
         @inline
         (f(item), n)
     end
 
 @inline unrolled_argmax(itr) = unrolled_findmax(itr)[2]
 @inline unrolled_argmax(f::F, itr) where {F} =
-    unrolled_mapreduce(findmax_reduction_operator, itr) do item
+    fused_mapreduce(findmax_reduction_operator, itr) do item
         @inline
         (f(item), item)
     end[2]
 
 @inline unrolled_argmin(itr) = unrolled_findmin(itr)[2]
 @inline unrolled_argmin(f::F, itr) where {F} =
-    unrolled_mapreduce(findmin_reduction_operator, itr) do item
+    fused_mapreduce(findmin_reduction_operator, itr) do item
         @inline
         (f(item), item)
     end[2]
@@ -521,14 +594,27 @@ end
 ## Unrolled analogues of functions from base/iterators.jl
 ##
 
-@inline unrolled_flatten(itr) =
+# The iterators are appended pairwise in a balanced tree, so that each item is
+# copied O(log N) times, where a left-to-right reduction copies it O(N) times.
+@inline _unrolled_flatten(::Val{1}, ::Val{I}, itr) where {I} =
+    generic_getindex(itr, I)
+@inline function _unrolled_flatten(::Val{N}, ::Val{I}, itr) where {N, I}
+    half = N ÷ 2
+    return unrolled_append(
+        _unrolled_flatten(Val(half), Val(I), itr),
+        _unrolled_flatten(Val(N - half), Val(I + half), itr),
+    )
+end
+
+@inline function unrolled_flatten(itr)
     if isempty(itr)
-        inferred_empty(itr)
+        return inferred_empty(itr)
     elseif length(itr) == 1
-        non_lazy_iterator(generic_getindex(itr, 1))
+        return non_lazy_iterator(generic_getindex(itr, 1))
     else
-        unrolled_reduce(unrolled_append, itr)
+        return _unrolled_flatten(Val(length(itr)), Val(1), itr)
     end
+end
 
 @inline unrolled_flatmap(f::F, itrs...) where {F} =
     unrolled_flatten(unrolled_map(f, itrs...))
@@ -561,12 +647,32 @@ end
 @inline unrolled_cycle(itr, ::Val{N}) where {N} =
     unrolled_flatten(ntuple(Returns(itr), Val(N)))
 
+@inline _unrolled_slice(itr, ::Val{offset}, ::Val{len}) where {offset, len} =
+    unrolled_drop(unrolled_take(itr, Val(offset + len)), Val(offset))
+@inline _unrolled_slice(
+    itr::Tuple,
+    ::Val{offset},
+    ::Val{len},
+) where {offset, len} =
+    unrolled_map_into_tuple(StaticOneTo(len)) do k
+        @inline
+        itr[offset + k]
+    end
+@inline _unrolled_slice(
+    nt::NamedTuple{names},
+    ::Val{offset},
+    ::Val{len},
+) where {names, offset, len} =
+    NamedTuple{_unrolled_slice(names, Val(offset), Val(len))}(
+        _unrolled_slice(Tuple(nt), Val(offset), Val(len)),
+    )
+
 @inline unrolled_partition(itr, ::Val{N}) where {N} =
     ntuple(Val(cld(length(itr), N))) do partition_number
         @inline
         first_index = N * (partition_number - 1)
         last_index = min(length(itr), N * partition_number)
-        unrolled_drop(unrolled_take(itr, Val(last_index)), Val(first_index))
+        _unrolled_slice(itr, Val(first_index), Val(last_index - first_index))
     end
 
 ##

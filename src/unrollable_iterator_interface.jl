@@ -24,6 +24,8 @@ iterator types defined in the standard library, such as `Base.Generator` and
     eltype_for_promotion(itr.itr)
 @inline eltype_for_promotion(itr::Iterators.Enumerate) =
     Tuple{Int, eltype_for_promotion(itr.itr)}
+@inline eltype_for_promotion(itr::Iterators.Zip) =
+    Tuple{unrolled_map_into_tuple(eltype_for_promotion, itr.is)...}
 @inline eltype_for_promotion(itr) =
     Base.promote_op(Base.Fix2(generic_getindex, 1), typeof(itr))
 
@@ -77,13 +79,6 @@ struct ConditionalOutputType{I, O, O′} <: AmbiguousOutputType end
     fallback_type::Type = Tuple,
 ) = ConditionalOutputType{allowed_item_type, output_type, fallback_type}()
 
-@inline unambiguous_output_type(_, ::Type{O}) where {O} = O
-@inline unambiguous_output_type(_, ::NoOutputType) = Tuple
-@inline unambiguous_output_type(
-    get_item_type,
-    ::ConditionalOutputType{I, O, O′},
-) where {I, O, O′} = get_item_type() <: I ? O : O′
-
 """
     output_promote_rule(output_type1, output_type2)
 
@@ -127,43 +122,81 @@ part of any `ConditionalOutputType` takes precedence over an unconditional type
            $O12 for $O1 followed by $O2, versus $O21 for $O2 followed by $O1")
 end
 
+@inline maybe_ambiguous_promoted_output_type() = Tuple
+@inline maybe_ambiguous_promoted_output_type(itr) =
+    output_type_for_promotion(itr)
+@inline maybe_ambiguous_promoted_output_type(itr1, itr2) =
+    output_promote_result(
+        output_type_for_promotion(itr1),
+        output_type_for_promotion(itr2),
+    )
 @inline maybe_ambiguous_promoted_output_type(itrs...) =
-    isempty(itrs) ? Tuple : # Generate a Tuple when given 0 inputs.
-    unrolled_mapreduce(output_type_for_promotion, output_promote_result, itrs)
+    fused_mapreduce(output_type_for_promotion, output_promote_result, itrs)
 
+@inline _inferred_output_type(::Type{O}, _) where {O} = O
+@inline _inferred_output_type(::NoOutputType, _) = Tuple
+@inline _inferred_output_type(
+    ::ConditionalOutputType{I, O, O′},
+    itr,
+) where {I, O, O′} = eltype_for_promotion(itr) <: I ? O : O′
 @inline inferred_output_type(itr) =
-    unambiguous_output_type(output_type_for_promotion(itr)) do
-        @inline
-        eltype_for_promotion(itr)
-    end
+    _inferred_output_type(output_type_for_promotion(itr), itr)
 
+@inline _inferred_output_type(::Type{O}, _, _) where {O} = O
+@inline _inferred_output_type(::NoOutputType, _, _) = Tuple
+@inline _inferred_output_type(
+    ::ConditionalOutputType{I, O, O′},
+    itr,
+    item,
+) where {I, O, O′} =
+    Union{eltype_for_promotion(itr), typeof(item)} <: I ? O : O′
 @inline inferred_output_type(itr, item) =
-    unambiguous_output_type(output_type_for_promotion(itr)) do
-        @inline
-        Union{eltype_for_promotion(itr), typeof(item)}
-    end
+    _inferred_output_type(output_type_for_promotion(itr), itr, item)
 
+@inline union_types(::Type{T1}, ::Type{T2}) where {T1, T2} = Union{T1, T2}
+
+@inline _promoted_output_type(::Type{O}, _) where {O} = O
+@inline _promoted_output_type(::NoOutputType, _) = Tuple
+@inline _promoted_output_type(
+    ::ConditionalOutputType{I, O, O′},
+    itrs,
+) where {I, O, O′} =
+    fused_mapreduce(eltype_for_promotion, union_types, itrs) <: I ? O : O′
 @inline promoted_output_type(itrs...) =
-    unambiguous_output_type(maybe_ambiguous_promoted_output_type(itrs...)) do
-        @inline
-        unrolled_mapreduce(
-            eltype_for_promotion,
-            (T1, T2) -> Union{T1, T2},
-            itrs,
-        )
-    end
+    _promoted_output_type(maybe_ambiguous_promoted_output_type(itrs...), itrs)
 
-@inline unrolled_map_output_type(f, itr) =
-    inferred_output_type(Iterators.map(f, itr))
-
-@inline unrolled_accumulate_output_type(op, itr, init) =
-    unambiguous_output_type(output_type_for_promotion(itr)) do
-        @inline
-        item_type = eltype_for_promotion(itr)
-        acc_type = init isa NoInit ? item_type : typeof(init)
+@inline _unrolled_accumulate_output_type(
+    ::Type{O},
+    op::F,
+    itr,
+    init,
+) where {O, F} = O
+@inline _unrolled_accumulate_output_type(
+    ::NoOutputType,
+    op::F,
+    itr,
+    init,
+) where {F} = Tuple
+@inline function _unrolled_accumulate_output_type(
+    ::ConditionalOutputType{I, O, O′},
+    op::F,
+    itr,
+    init,
+) where {I, O, O′, F}
+    item_type = eltype_for_promotion(itr)
+    acc_type = init isa NoInit ? item_type : typeof(init)
+    out_type =
         init isa NoInit && length(itr) <= 1 ? acc_type :
         Union{acc_type, Base.promote_op(op, acc_type, item_type)}
-    end
+    return out_type <: I ? O : O′
+end
+@inline unrolled_accumulate_output_type(op::F, itr, init) where {F} =
+    _unrolled_accumulate_output_type(
+        output_type_for_promotion(itr),
+        op,
+        itr,
+        init,
+    )
 
 """
     constructor_from_tuple(output_type)
@@ -200,5 +233,6 @@ An empty output of type `output_type`. Defaults to applying the
 @inline inferred_empty(itr) = empty_output(inferred_output_type(itr))
 
 # This makes lazy iterators non-lazy, and it is a no-op for non-lazy iterators.
+@inline non_lazy_iterator(itr::Union{Tuple, NamedTuple}) = itr
 @inline non_lazy_iterator(itr) =
-    unrolled_append_into(inferred_output_type(itr), itr, inferred_empty(itr))
+    unrolled_map_into(inferred_output_type(itr), identity, itr)
