@@ -18,7 +18,7 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
     writing_to_docs = io isa IOStream
 
     color(color_str) =
-        writing_to_docs ? HtmlDecoration(; color = color_str) :
+        writing_to_docs ? ["color" => color_str] :
         Crayon(; foreground = Symbol(color_str))
     highlighter_color(optimization, run_time, compile_time, allocs) =
         if contains(optimization, "better") ||
@@ -70,7 +70,7 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
             # worse performance
             color(writing_to_docs ? "indianred" : "red")
         end
-    highlighter = (writing_to_docs ? HtmlHighlighter : Highlighter)(
+    highlighter = (writing_to_docs ? HtmlHighlighter : TextHighlighter)(
         Returns(true),
         (_, data, row, _) -> highlighter_color(data[row, 6:9]...),
     )
@@ -81,20 +81,29 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
     other_kwargs =
         writing_to_docs ?
         (;
-            backend = Val(:html),
-            table_style = Dict(
-                "font-family" => "monospace",
-                "font-size" => "70%",
+            backend = :html,
+            style = HtmlTableStyle(;
+                table = ["font-family" => "monospace", "font-size" => "70%"],
             ),
         ) :
         (;
             title,
             title_alignment = :c,
-            title_same_width_as_table = true,
-            columns_width = [45, 45, 15, 10, 30, 25, 20, 20, has_rss ? 30 : 20],
-            linebreaks = true,
-            autowrap = true,
-            crop = :none,
+            fixed_data_column_widths = [
+                45,
+                45,
+                15,
+                10,
+                30,
+                25,
+                20,
+                20,
+                has_rss ? 30 : 20,
+            ],
+            line_breaks = true,
+            auto_wrap = true,
+            fit_table_in_display_horizontally = false,
+            fit_table_in_display_vertically = false,
         )
 
     if writing_to_docs
@@ -106,7 +115,7 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
         io,
         table_data;
         alignment = :l,
-        header = [
+        column_labels = [
             "Unrolled Expression",
             "Reference Expression",
             "Itr Type",
@@ -117,7 +126,7 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
             "Compilation Time",
             "Total $(has_rss ? "GC [and RSS] " : "")Allocations",
         ],
-        highlighters = highlighter,
+        highlighters = [highlighter],
         other_kwargs...,
     )
     if writing_to_docs

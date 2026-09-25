@@ -62,7 +62,14 @@ function gpu_errors(f, arg_types...; always_inline = false)
         kwargs = (; kernel = true, libraries = false, always_inline)
         config = GPUCompiler.CompilerConfig(gpu_target, gpu_params; kwargs...)
         compiler_job = GPUCompiler.CompilerJob(source, config)
-        GPUCompiler.JuliaContext(_ -> GPUCompiler.compile(:llvm, compiler_job))
+        # LLVM reports module-flag mismatches through Julia's logger while it
+        # links the GPU module. The messages are noise here, and logging from
+        # inside codegen can deadlock on the codegen lock.
+        Base.CoreLogging.with_logger(Base.CoreLogging.NullLogger()) do
+            GPUCompiler.JuliaContext(
+                _ -> GPUCompiler.compile(:llvm, compiler_job),
+            )
+        end
         return []
     catch err
         return gpu_error_strings(err)
@@ -103,8 +110,12 @@ function store_errors(f, args...; T = store_type(f, args...), kwargs...)
 end
 test_gpu_compiles(f, args...; broken = false, kwargs...) =
     @test store_errors(f, args...; kwargs...) == [] broken = broken
+test_gpu_throws(error_substrings::Tuple, f, args...; kwargs...) = @test any(
+    error -> any(Base.Fix1(contains, error), error_substrings),
+    store_errors(f, args...; kwargs...),
+)
 test_gpu_throws(error_substring, f, args...; kwargs...) =
-    @test any(contains(error_substring), store_errors(f, args...; kwargs...))
+    test_gpu_throws((error_substring,), f, args...; kwargs...)
 test_gpu_throws_alloc(f, args...; kwargs...) =
     test_gpu_throws("gpu_gc_pool_alloc", f, args...; kwargs...)
 
@@ -113,8 +124,8 @@ floats(n) = ntuple(Float32, n)
 vals(n) = ntuple(Val, n)
 
 runtime_number(x) = x isa Val ? typeof(x).parameters[1] : x
-runtime_bool(x) = isodd(Int(runtime_number(x)))
-runtime_int(x) = Int(runtime_number(x))
+runtime_int(x) = unsafe_trunc(Int, runtime_number(x))
+runtime_bool(x) = isodd(runtime_int(x))
 runtime_tuple(x) = (runtime_number(x), runtime_bool(x), runtime_int(x))
 runtime_combination(x, y) = runtime_number(x) + runtime_number(y)
 
@@ -144,8 +155,10 @@ unstable_val(x) = Val(Symbol(:input_of_type_, typeof(x)))
 
     test_zero_allocs(stable_error, 1)
     test_gpu_compiles(stable_error, 1)
-    test_gpu_throws_alloc(unstable_error, 1)
-    test_gpu_throws("ijl_alloc_string", unstable_error, 1)
+    # On Julia 1.10 with GPUCompiler 2, inference stops at a dynamic call to
+    # print_to_string before it reaches the string allocation.
+    test_gpu_throws(("gpu_gc_pool_alloc", "print_to_string"), unstable_error, 1)
+    test_gpu_throws(("ijl_alloc_string", "print_to_string"), unstable_error, 1)
 
     test_zero_allocs(stable_val, 1)
     test_gpu_compiles(stable_val, 1)
@@ -172,13 +185,13 @@ end
     test_unrolled(unrolled_setindex, WIDE, 1, Val(30))
     test_unrolled(unrolled_insert, WIDE, 1, Val(30))
     test_unrolled(unrolled_map, runtime_number, WIDE)
-    test_unrolled(unrolled_any, runtime_bool, WIDE; gpu_broken = true)
-    test_unrolled(unrolled_all, runtime_bool, WIDE; gpu_broken = true)
+    test_unrolled(unrolled_any, runtime_bool, WIDE)
+    test_unrolled(unrolled_all, runtime_bool, WIDE)
     test_unrolled(unrolled_foreach, runtime_number, WIDE)
     test_unrolled(unrolled_reduce, runtime_combination, WIDE)
     test_unrolled(unrolled_mapreduce, runtime_number, runtime_combination, WIDE)
     test_unrolled(unrolled_accumulate, runtime_combination, WIDE)
-    test_unrolled(unrolled_applyat, runtime_int, 30, WIDE; gpu_broken = true)
+    test_unrolled(unrolled_applyat, runtime_int, 30, WIDE)
     test_unrolled(unrolled_in, 1, WIDE)
     test_unrolled(unrolled_unique, constant_number, WIDE)
     test_unrolled(unrolled_allunique, runtime_number, WIDE)
@@ -187,12 +200,12 @@ end
     test_unrolled(unrolled_prod, runtime_number, WIDE)
     test_unrolled(unrolled_cumsum, runtime_number, WIDE)
     test_unrolled(unrolled_cumprod, runtime_number, WIDE)
-    test_unrolled(unrolled_count, runtime_bool, WIDE; gpu_broken = true)
+    test_unrolled(unrolled_count, runtime_bool, WIDE)
     test_unrolled(unrolled_maximum, runtime_number, WIDE)
     test_unrolled(unrolled_minimum, runtime_number, WIDE)
     test_unrolled(unrolled_extrema, runtime_number, WIDE)
-    test_unrolled(unrolled_findmax, runtime_int, WIDE; gpu_broken = true)
-    test_unrolled(unrolled_findmin, runtime_int, WIDE; gpu_broken = true)
+    test_unrolled(unrolled_findmax, runtime_int, WIDE)
+    test_unrolled(unrolled_findmin, runtime_int, WIDE)
     test_unrolled(unrolled_argmax, constant_number, WIDE)
     test_unrolled(unrolled_argmin, constant_number, WIDE)
     test_unrolled(unrolled_findfirst, constant_bool, WIDE)
@@ -202,7 +215,7 @@ end
     test_unrolled(unrolled_filter, constant_bool, WIDE)
     test_unrolled(unrolled_split, constant_bool, WIDE)
     test_unrolled(unrolled_flatten, (WIDE, WIDE, WIDE))
-    test_unrolled(unrolled_flatmap, runtime_tuple, WIDE; gpu_broken = true)
+    test_unrolled(unrolled_flatmap, runtime_tuple, WIDE)
     test_unrolled(unrolled_product, WIDE, vals(3))
     test_unrolled(unrolled_cycle, WIDE, Val(3))
     test_unrolled(unrolled_partition, WIDE, Val(3))
