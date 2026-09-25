@@ -15,31 +15,58 @@ struct StaticBitVector{N, U <: Unsigned, I <: NTuple{<:Any, U}} <:
        StaticSequence{N}
     ints::I
 end
-@inline StaticBitVector{N, U}(ints) where {N, U} =
-    StaticBitVector{N, U, typeof(ints)}(ints)
+# The word-level methods read words without bounds checks, so the number of
+# words is checked here. The unused bits of the last word are cleared, so that
+# vectors with the same bits are identical (===).
+@inline function StaticBitVector{N, U}(ints::Tuple) where {N, U}
+    length(ints) == cld(N, 8 * sizeof(U)) || throw(
+        ArgumentError("the number of words must be cld(N, 8 * sizeof(U))"),
+    )
+    masked_ints = _masked_ints(Val(N), U, ints)
+    return StaticBitVector{N, U, typeof(masked_ints)}(masked_ints)
+end
 @inline StaticBitVector{N}(args...) where {N} =
     StaticBitVector{N, UInt8}(args...)
+
+@inline function _masked_ints(::Val{N}, ::Type{U}, ints::Tuple) where {N, U}
+    N == 0 && return ()
+    rem_bits = N % (8 * sizeof(U))
+    rem_bits == 0 && return ints
+    mask = (one(U) << rem_bits) - one(U)
+    return ntuple(
+        k -> ifelse(
+            k == length(ints),
+            @inbounds(ints[end]) & mask,
+            @inbounds(ints[k]),
+        ),
+        Val(length(ints)),
+    )
+end
+@inline _masked_ints(itr::StaticBitVector{N, U}) where {N, U} =
+    _masked_ints(Val(N), U, itr.ints)
 
 @inline function StaticBitVector{N, U}(bit::Bool = false) where {N, U}
     n_bits_per_int = 8 * sizeof(U)
     n_ints = cld(N, n_bits_per_int)
-    ints = ntuple(Returns(bit ? ~zero(U) : zero(U)), Val(n_ints))
-    return StaticBitVector{N, U}(ints)
+    ints = _masked_ints(
+        Val(N),
+        U,
+        ntuple(Returns(bit ? ~zero(U) : zero(U)), Val(n_ints)),
+    )
+    return StaticBitVector{N, U, typeof(ints)}(ints)
 end
 
-@inline function StaticBitVector{N, U}(f::Function) where {N, U}
+@inline function StaticBitVector{N, U}(f) where {N, U}
     n_bits_per_int = 8 * sizeof(U)
     n_ints = cld(N, n_bits_per_int)
     ints = ntuple(Val(n_ints)) do int_index
         @inline
         first_index = n_bits_per_int * (int_index - 1) + 1
-        unrolled_reduce(
-            StaticOneTo(min(n_bits_per_int, N - first_index + 1)),
-            zero(U),
-        ) do int, bit_index
+        unrolled_reduce(StaticOneTo(n_bits_per_int), zero(U)) do int, bit_index
             @inline
             bit_offset = bit_index - 1
-            int | U(f(first_index + bit_offset)::Bool) << bit_offset
+            index = first_index + bit_offset
+            index <= N ? (int | U(f(index)::Bool) << bit_offset) : int
         end
     end
     return StaticBitVector{N, U}(ints)
@@ -67,18 +94,23 @@ end
     int_index, bit_offset = int_index_and_bit_offset(U, n)
     int = itr.ints[int_index]
     new_int = int & ~(one(U) << bit_offset) | U(bit) << bit_offset
-    ints = Base.setindex(itr.ints, new_int, int_index)
-    return StaticBitVector{N, U}(ints)
+    ints = ntuple(
+        k -> ifelse(k == int_index, new_int, itr.ints[k]),
+        Val(length(itr.ints)),
+    )
+    return StaticBitVector{N, U, typeof(ints)}(ints)
 end
 
 @inline unrolled_setindex_into(
-    ::Type{<:StaticBitVector},
-    itr::StaticBitVector,
+    ::Type{StaticBitVector{<:Any, U}},
+    itr::StaticBitVector{<:Any, U},
     bit::Bool,
     ::Val{N},
-) where {N} =
+) where {N, U} =
     N < 1 || N > length(itr) ? Base.throw_boundserror(itr, N) :
     Base.setindex(itr, bit, N)
+
+@inline eltype_for_promotion(::StaticBitVector) = Bool
 
 @inline output_type_for_promotion(::StaticBitVector{<:Any, U}) where {U} =
     ConditionalOutputType(Bool, StaticBitVector{<:Any, U})
@@ -88,7 +120,7 @@ end
         StaticBitVector{length(items), U}(Base.Fix1(generic_getindex, items))
 
 @inline empty_output(::Type{StaticBitVector{<:Any, U}}) where {U} =
-    StaticBitVector{0, U}()
+    StaticBitVector{0, U, Tuple{}}(())
 
 @inline non_lazy_iterator(itr::StaticBitVector) = itr
 
@@ -106,14 +138,14 @@ end
     n_ints = cld(length(itr), n_bits_per_int)
     bit_offset = length(itr) % n_bits_per_int
     ints = if bit_offset == 0
-        (itr.ints..., U(bit))
+        unrolled_push(itr.ints, U(bit))
     else
         last_int = itr.ints[n_ints]
         new_last_int =
             last_int & ~(one(U) << bit_offset) | U(bit) << bit_offset
-        (unrolled_take(itr.ints, Val(n_ints - 1))..., new_last_int)
+        unrolled_push(unrolled_take(itr.ints, Val(n_ints - 1)), new_last_int)
     end
-    return StaticBitVector{length(itr) + 1, U}(ints)
+    return StaticBitVector{length(itr) + 1, U, typeof(ints)}(ints)
 end
 
 @inline function unrolled_append_into(
@@ -125,7 +157,7 @@ end
     n_ints1 = cld(length(itr1), n_bits_per_int)
     bit_offset = length(itr1) % n_bits_per_int
     ints = if bit_offset == 0 || length(itr2) == 0
-        (itr1.ints..., itr2.ints...)
+        unrolled_append(itr1.ints, itr2.ints)
     else
         mid_int1 = itr1.ints[n_ints1]
         mid_int2 = itr2.ints[1]
@@ -134,9 +166,12 @@ end
         final_ints =
             length(itr2) + bit_offset <= n_bits_per_int ? () :
             unrolled_drop(itr2, Val(n_bits_per_int - bit_offset)).ints
-        (unrolled_take(itr1.ints, Val(n_ints1 - 1))..., mid_int, final_ints...)
+        unrolled_append(
+            unrolled_push(unrolled_take(itr1.ints, Val(n_ints1 - 1)), mid_int),
+            final_ints,
+        )
     end
-    return StaticBitVector{length(itr1) + length(itr2), U}(ints)
+    return StaticBitVector{length(itr1) + length(itr2), U, typeof(ints)}(ints)
 end
 
 @inline function unrolled_take_into(
@@ -147,8 +182,8 @@ end
     (N < 0 || N > length(itr)) && Base.throw_boundserror(itr, N)
     n_bits_per_int = 8 * sizeof(U)
     n_ints = cld(N, n_bits_per_int)
-    ints = unrolled_take(itr.ints, Val(n_ints))
-    return StaticBitVector{N, U}(ints)
+    ints = _masked_ints(Val(N), U, unrolled_take(itr.ints, Val(n_ints)))
+    return StaticBitVector{N, U, typeof(ints)}(ints)
 end
 
 @inline function unrolled_drop_into(
@@ -163,26 +198,25 @@ end
     bit_offset = N - n_bits_per_int * n_dropped_ints
     ints_without_offset = unrolled_drop(itr.ints, Val(n_dropped_ints))
     ints = if bit_offset == 0 || length(itr) <= N
-        ints_without_offset
+        unrolled_take(ints_without_offset, Val(n_ints))
     else
-        next_ints =
-            length(ints_without_offset) == 1 ? (nothing,) :
-            (unrolled_drop(ints_without_offset, Val(1))..., nothing)
-        unrolled_map(ints_without_offset, next_ints) do cur_int, next_int
+        ntuple(Val(n_ints)) do k
             @inline
-            isnothing(next_int) ? cur_int >> bit_offset :
-            cur_int >> bit_offset | next_int << (n_bits_per_int - bit_offset)
+            cur_int = ints_without_offset[k]
+            k == length(ints_without_offset) ? cur_int >> bit_offset :
+            cur_int >> bit_offset |
+            ints_without_offset[k + 1] << (n_bits_per_int - bit_offset)
         end
     end
-    return StaticBitVector{length(itr) - N, U}(unrolled_take(ints, Val(n_ints)))
+    return StaticBitVector{length(itr) - N, U, typeof(ints)}(ints)
 end
 
 @inline unrolled_insert_into(
-    ::Type{<:StaticBitVector},
-    itr::StaticBitVector,
+    ::Type{StaticBitVector{<:Any, U}},
+    itr::StaticBitVector{<:Any, U},
     bit::Bool,
     ::Val{N},
-) where {N} =
+) where {N, U} =
     N < 1 || N > length(itr) + 1 ? Base.throw_boundserror(itr, N) :
     unrolled_append(
         unrolled_push(unrolled_take(itr, Val(N - 1)), bit),
@@ -205,17 +239,87 @@ end
         @inline
         first_index = n_bits_per_int * (int_index - 1) + 1
         unrolled_reduce(
-            StaticOneTo(min(n_bits_per_int, N - first_index + 1)),
+            StaticOneTo(n_bits_per_int),
             (zero(U), init_value_for_new_int),
         ) do (int, prev_value), bit_index
             @inline
             bit_offset = bit_index - 1
-            item = generic_getindex(itr, first_index + bit_offset)
-            new_value =
-                first_index + bit_offset == 1 && prev_value isa NoInit ?
-                item : op(prev_value, item)
-            (int | U(new_value::Bool) << bit_offset, new_value)
+            index = first_index + bit_offset
+            if index <= N
+                item = generic_getindex(itr, index)
+                new_value =
+                    index == 1 && prev_value isa NoInit ? item :
+                    op(prev_value, item)
+                (int | U(new_value::Bool) << bit_offset, new_value)
+            else
+                (int, prev_value)
+            end
         end
     end
-    return StaticBitVector{N, U}(unrolled_map(first, ints))
+    word_ints = unrolled_map(first, ints)
+    return StaticBitVector{N, U, typeof(word_ints)}(word_ints)
 end
+
+# `~` also flips the unused bits of the last word, so they are cleared to keep
+# the result identical to a vector constructed from the negated bits.
+@inline function unrolled_map(
+    ::typeof(!),
+    itr::StaticBitVector{N, U},
+) where {N, U}
+    ints = _masked_ints(Val(N), U, unrolled_map(~, itr.ints))
+    return StaticBitVector{N, U, typeof(ints)}(ints)
+end
+
+@inline unrolled_any(::typeof(identity), itr::StaticBitVector) =
+    unrolled_any(!iszero, _masked_ints(itr))
+@inline unrolled_any(::typeof(!), itr::StaticBitVector) =
+    !unrolled_all(identity, itr)
+
+@inline function unrolled_all(
+    ::typeof(identity),
+    itr::StaticBitVector{N, U},
+) where {N, U}
+    N == 0 && return true
+    n_bits_per_int = 8 * sizeof(U)
+    rem_bits = N % n_bits_per_int
+    last_all_ones = rem_bits == 0 ? ~zero(U) : (one(U) << rem_bits) - one(U)
+    n_ints = length(itr.ints)
+    return unrolled_all(StaticOneTo(n_ints)) do k
+        @inline
+        word = @inbounds itr.ints[k]
+        k == n_ints ? (word & last_all_ones) == last_all_ones : word == ~zero(U)
+    end
+end
+@inline unrolled_all(::typeof(!), itr::StaticBitVector) =
+    !unrolled_any(identity, itr)
+
+@inline unrolled_count(::typeof(identity), itr::StaticBitVector) =
+    Int(_unrolled_sum(count_ones, _masked_ints(itr), NoInit()))
+@inline unrolled_count(::typeof(!), itr::StaticBitVector) =
+    length(itr) - unrolled_count(identity, itr)
+
+@inline word_level_reduction(::typeof(&)) = unrolled_all
+@inline word_level_reduction(::typeof(|)) = unrolled_any
+
+@inline function _unrolled_bitvector_mapreduce(
+    f::Union{typeof(identity), typeof(!)},
+    op::Union{typeof(&), typeof(|)},
+    itr::StaticBitVector,
+    init,
+)
+    isempty(itr) && return empty_reduction_value(init)
+    result = word_level_reduction(op)(f, itr)
+    return init isa NoInit ? result : op(init, result)
+end
+
+@inline unrolled_reduce(
+    op::Union{typeof(&), typeof(|)},
+    itr::StaticBitVector,
+    init,
+) = _unrolled_bitvector_mapreduce(identity, op, itr, init)
+@inline unrolled_mapreduce(
+    f::Union{typeof(identity), typeof(!)},
+    op::Union{typeof(&), typeof(|)},
+    itr::StaticBitVector;
+    init = NoInit(),
+) = _unrolled_bitvector_mapreduce(f, op, itr, init)
