@@ -16,5 +16,10 @@ struct StaticOneTo{N} <: StaticSequence{N} end
 @inline output_type_for_promotion(::StaticOneTo) = NoOutputType()
 @inline eltype_for_promotion(::StaticOneTo) = Int
 
-@inline unrolled_take(r::StaticOneTo, ::Val{N}) where {N} =
-    N < 0 || N > length(r) ? Base.throw_boundserror(r, N) : StaticOneTo(N)
+Base.@propagate_inbounds function unrolled_take(
+    r::StaticOneTo,
+    ::Val{N},
+) where {N}
+    @boundscheck (N < 0 || N > length(r)) && Base.throw_boundserror(r, N)
+    return StaticOneTo(N)
+end
