@@ -33,6 +33,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # For authentication with GitHub Actions token
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }} # For authentication with SSH deploy key
-          # Pull request previews skip the half-hour benchmark tables.
-          UNROLLED_UTILITIES_BENCHMARK: ${{ github.event_name != 'pull_request' }}
         run: julia --project=docs/ docs/make.jl
