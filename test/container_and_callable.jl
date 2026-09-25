@@ -115,6 +115,15 @@ end
 end
 
 @testset "StaticBitVector correctness and promotion" begin
+    counter_bv = OddCallCounter(0)
+    @test Tuple(StaticBitVector{5}(counter_bv)) ==
+          (true, false, true, false, true)
+    @test counter_bv.count == 5
+
+    @test StaticBitVector{3}((0xff,)) === StaticBitVector{3}(true)
+    @test_throws ArgumentError StaticBitVector{20}((0x01,))
+    @test unrolled_take(StaticBitVector{19}(true), Val(3)) ===
+          StaticBitVector{3}(true)
     @test_throws BoundsError unrolled_take(StaticBitVector{3}(true), Val(-1))
     @test_throws BoundsError unrolled_drop(StaticBitVector{3}(true), Val(-1))
 
@@ -224,4 +233,46 @@ end
     acc = Ref(0)
     unrolled_foreach((x, y) -> (acc[] += x + y), SVector(1, 2), SVector(10, 20))
     @test acc[] == 33
+end
+
+@testset "word-level StaticBitVector operations" begin
+    # 19 bits span 3 UInt8 words, the last of which is only partly used.
+    bv0 = StaticBitVector{0}(true)
+    @test unrolled_any(bv0) === false
+    @test unrolled_any(!, bv0) === false
+    @test unrolled_all(bv0) === true
+    @test unrolled_all(!, bv0) === true
+    @test unrolled_count(bv0) === 0
+    @test unrolled_count(!, bv0) === 0
+    @test unrolled_map(!, bv0) === bv0
+
+    bv19 = StaticBitVector{19}(n -> isodd(n) || n == 18)
+    bv19_tuple = Tuple(bv19)
+    @test Tuple(unrolled_map(!, bv19)) === map(!, bv19_tuple)
+    # === compares all words, including the unused bits of the last word.
+    @test unrolled_map(!, bv19) === StaticBitVector{19}(n -> !bv19[n])
+    @test unrolled_map(!, StaticBitVector{5}(isodd)) ===
+          StaticBitVector{5}(iseven)
+    @test unrolled_any(bv19) === any(bv19_tuple)
+    @test unrolled_any(!, bv19) === any(!, bv19_tuple)
+    @test unrolled_all(bv19) === all(bv19_tuple)
+    @test unrolled_all(!, bv19) === all(!, bv19_tuple)
+    @test unrolled_count(bv19) === count(bv19_tuple)
+    @test unrolled_count(!, bv19) === count(!, bv19_tuple)
+    @test unrolled_reduce(&, bv19) === reduce(&, bv19_tuple)
+    @test unrolled_reduce(|, bv19) === reduce(|, bv19_tuple)
+    @test unrolled_mapreduce(!, &, bv19) === mapreduce(!, &, bv19_tuple)
+    @test unrolled_mapreduce(!, |, bv19) === mapreduce(!, |, bv19_tuple)
+
+    bv19_all_true = StaticBitVector{19}(true)
+    @test unrolled_all(bv19_all_true) === true
+    @test unrolled_any(!, bv19_all_true) === false
+    @test unrolled_count(bv19_all_true) === 19
+    @test unrolled_count(!, bv19_all_true) === 0
+
+    bv19_all_false = StaticBitVector{19}(false)
+    @test unrolled_any(bv19_all_false) === false
+    @test unrolled_all(!, bv19_all_false) === true
+    @test unrolled_count(bv19_all_false) === 0
+    @test unrolled_count(!, bv19_all_false) === 19
 end
