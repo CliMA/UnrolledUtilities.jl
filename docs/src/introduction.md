@@ -32,11 +32,10 @@ details[open] summary::after {
 
 ## Motivation for Loop Unrolling
 
-Although the iteration utilities in `Base` and `Base.Iterators` are sufficiently
-performant for most common use cases, those who choose to dive into the world of
-low-level optimization will often discover
+The iteration utilities in `Base` and `Base.Iterators` perform well for most
+uses, but low-level optimization often runs into
 [type instabilities](https://docs.julialang.org/en/v1/manual/faq/#man-type-stability)
-in unexpected situations. Here is a particularly simple example:
+in unexpected places. Here is a simple example:
 
 ```@repl inference_test
 Test.@inferred map(one, Tuple(1:31));
@@ -49,9 +48,9 @@ type instabilities in Julia, this leads to memory allocations every time `map`
 is called with sufficiently long iterators.
 
 [`Test.@inferred`](https://docs.julialang.org/en/v1/stdlib/Test/#Test.@inferred)
-is helpful for checking whether the return type of a function call is stable,
-but looking directly at the generated [LLVM](https://llvm.org/docs/LangRef.html)
-code reveals just how different the two function calls above are:
+checks whether the return type of a call is stable. The generated
+[LLVM](https://llvm.org/docs/LangRef.html) code shows how different the two
+calls above are:
 
 ```@repl inference_test
 @code_llvm debuginfo=:none map(one, Tuple(1:31))
@@ -153,9 +152,9 @@ Test.@inferred add_lengths(((1, 2), (1, 2, 3)))
 @code_warntype add_lengths(((1, 2), (1, 2, 3)))
 ```
 
-The output of `@code_warntype` is quite cluttered, but the most important detail
-here is that the call to `getindex` does not get inferred because it can result
-in either a `Tuple` of length 2 or a `Tuple` of length 3. This type instability
+The key detail in the output of `@code_warntype` is that the call to `getindex`
+is not inferred, because it can return either a `Tuple` of length 2 or a `Tuple`
+of length 3. This type instability
 can be fixed by replacing `getindex` with `unrolled_applyat`:
 
 ```@repl inference_test
@@ -215,15 +214,12 @@ index has been reached after each `load` and `getelementptr` instruction.
 
 ## Downsides of Loop Unrolling
 
-Given the performance benefits of loop unrolling, it might seem at first that
-the standard library needs more of it. However, the standard library is not just
-meant for writing high-performance code with statically sized iterators—many of
-its use cases involve code that is only executed once or several times. In such
-cases, most of the execution time is required for compilation, and minimizing
-run time makes no practical difference. Although unrolled functions can
-occasionally be faster to compile than non-unrolled functions, they are
-typically slower to compile, which means that using them instead of standard
-library functions can often increase total execution time:
+Loop unrolling has a cost: unrolled functions usually take longer to compile
+than their counterparts in the standard library. Much of the code written with
+the standard library runs only once or a few times, so compilation dominates its
+total execution time, and run-time savings make no practical difference there.
+Replacing standard library functions with unrolled functions in such code can
+increase total execution time:
 
 ```@repl inference_test
 tup32 = ntuple(Returns((1, 2)), 32);
@@ -245,12 +241,11 @@ addition to its compilation time, since unrolled assembly code requires more
 space and takes longer to load than non-unrolled code. In practice, though, the
 constant propagation enabled by unrolling usually compensates for this slowdown.
 
-So, when type instabilities and memory allocations need to be removed
-([as is required for static compilation](https://github.com/brenhinkeller/StaticTools.jl#limitations))
-and the cost to total execution time is more or less irrelevant, using unrolled
-functions is probably worthwhile. Otherwise, if a significant increase in
-compilation time (and potentially also run time) needs to be avoided, using
-standard library functions might be a better option.
+Unrolled functions are worthwhile when type instabilities and allocations must
+be removed, as they must be for GPU kernels and for
+[static compilation](https://github.com/brenhinkeller/StaticTools.jl#limitations),
+and when run time matters more than compilation time. Standard library functions
+are the better choice when compilation time dominates.
 
 It is usually a good idea to compare the performance of unrolled code against
 non-unrolled code before settling on a particular design. Many examples of such

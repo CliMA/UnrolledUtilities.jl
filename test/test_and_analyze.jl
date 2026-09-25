@@ -7,6 +7,10 @@ using InteractiveUtils
 using UnrolledUtilities
 include("recursively_unrolled_functions.jl")
 
+# The run-time and compilation benchmarks are only needed for the comparison
+# tables in the documentation, so they are skipped unless this is set to true.
+benchmark_mode = get(ENV, "UNROLLED_UTILITIES_BENCHMARK", "false") == "true"
+
 comparison_table_dicts = OrderedDict()
 
 function print_comparison_table(title, comparison_table_dict, io = stdout)
@@ -18,7 +22,7 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
     writing_to_docs = io isa IOStream
 
     color(color_str) =
-        writing_to_docs ? HtmlDecoration(; color = color_str) :
+        writing_to_docs ? ["color" => color_str] :
         Crayon(; foreground = Symbol(color_str))
     highlighter_color(optimization, run_time, compile_time, allocs) =
         if contains(optimization, "better") ||
@@ -70,7 +74,7 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
             # worse performance
             color(writing_to_docs ? "indianred" : "red")
         end
-    highlighter = (writing_to_docs ? HtmlHighlighter : Highlighter)(
+    highlighter = (writing_to_docs ? HtmlHighlighter : TextHighlighter)(
         Returns(true),
         (_, data, row, _) -> highlighter_color(data[row, 6:9]...),
     )
@@ -81,20 +85,29 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
     other_kwargs =
         writing_to_docs ?
         (;
-            backend = Val(:html),
-            table_style = Dict(
-                "font-family" => "monospace",
-                "font-size" => "70%",
+            backend = :html,
+            style = HtmlTableStyle(;
+                table = ["font-family" => "monospace", "font-size" => "70%"],
             ),
         ) :
         (;
             title,
             title_alignment = :c,
-            title_same_width_as_table = true,
-            columns_width = [45, 45, 15, 10, 30, 25, 20, 20, has_rss ? 30 : 20],
-            linebreaks = true,
-            autowrap = true,
-            crop = :none,
+            fixed_data_column_widths = [
+                45,
+                45,
+                15,
+                10,
+                30,
+                25,
+                20,
+                20,
+                has_rss ? 30 : 20,
+            ],
+            line_breaks = true,
+            auto_wrap = true,
+            fit_table_in_display_horizontally = false,
+            fit_table_in_display_vertically = false,
         )
 
     if writing_to_docs
@@ -106,7 +119,7 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
         io,
         table_data;
         alignment = :l,
-        header = [
+        column_labels = [
             "Unrolled Expression",
             "Reference Expression",
             "Itr Type",
@@ -117,7 +130,7 @@ function print_comparison_table(title, comparison_table_dict, io = stdout)
             "Compilation Time",
             "Total $(has_rss ? "GC [and RSS] " : "")Allocations",
         ],
-        highlighters = highlighter,
+        highlighters = [highlighter],
         other_kwargs...,
     )
     if writing_to_docs
@@ -353,53 +366,6 @@ macro test_unrolled(
         $(esc(skip_type_stability_test)) ||
             @test unrolled_opt_score >= reference_opt_score
 
-        # Measure the run times.
-        unrolled_run_time = @benchmark unrolled_func($(args...))
-        reference_run_time = @benchmark reference_func($(args...))
-
-        # Measure the compilation times and memory allocations in separate
-        # processes to ensure that they are not under-counted.
-        arg_name_strs = ($(map(string, arg_names)...),)
-        arg_definition_strs =
-            map((name, value) -> "$name = $value", arg_name_strs, ($(args...),))
-        arg_definitions_str = join(arg_definition_strs, '\n')
-        recursively_unrolled_functions_file_path = escape_string(
-            joinpath(@__DIR__, "recursively_unrolled_functions.jl"),
-        )
-        load_recursively_unrolled_functions_str =
-            $load_recursively_unrolled_functions ?
-            "include(\"$recursively_unrolled_functions_file_path\")" : ""
-        command_str(func_str) = """
-            using UnrolledUtilities
-            $arg_definitions_str
-            $load_recursively_unrolled_functions_str
-            Base.cumulative_compile_timing(true)
-            nanoseconds1 = Base.cumulative_compile_time_ns()[1]
-            rss_bytes_1 = Sys.maxrss()
-            Δgc_bytes = @allocated $func_str
-            rss_bytes_2 = Sys.maxrss()
-            nanoseconds2 = Base.cumulative_compile_time_ns()[1]
-            Base.cumulative_compile_timing(false)
-            Δnanoseconds = nanoseconds2 - nanoseconds1
-            Δrss_bytes = rss_bytes_2 - rss_bytes_1
-            print(Δnanoseconds, ", ", Δgc_bytes, ", ", Δrss_bytes)
-            """
-
-        unrolled_command_str = command_str($(string(unrolled_expr)))
-        run(pipeline(`julia --project -e $unrolled_command_str`, buffer))
-        unrolled_compile_time, unrolled_total_memory, unrolled_total_rss =
-            parse.((Int, Int, Int), split(String(take!(buffer)), ','))
-
-        # Make a new buffer to avoid a potential data race:
-        # discourse.julialang.org/t/iobuffer-becomes-not-writable-after-run/92323/3
-        close(buffer)
-        buffer = IOBuffer()
-
-        reference_command_str = command_str($(string(reference_expr)))
-        run(pipeline(`julia --project -e $reference_command_str`, buffer))
-        reference_compile_time, reference_total_memory, reference_total_rss =
-            parse.((Int, Int, Int), split(String(take!(buffer)), ','))
-
         close(buffer)
 
         optimization_str = if unrolled_opt_score > reference_opt_score
@@ -413,25 +379,104 @@ macro test_unrolled(
         else
             "similar ($unrolled_opt_str)"
         end
-        run_time_str = comparison_string(
-            unrolled_run_time,
-            reference_run_time,
-            time_string;
-            epsilon = 50, # Ignore differences between times shorter than 50 ns.
-        )
-        compile_time_str = comparison_string(
-            unrolled_compile_time,
+
+        # The run times, compilation times, and total allocations are only
+        # needed for the comparison tables, so they are measured in benchmark
+        # mode only. Compilation times and allocations are measured in separate
+        # processes to ensure that they are not under-counted.
+        run_time_str, compile_time_str, memory_str = if benchmark_mode
+            unrolled_run_time = @benchmark unrolled_func($(args...))
+            reference_run_time = @benchmark reference_func($(args...))
+
+            arg_name_strs = ($(map(string, arg_names)...),)
+            arg_definition_strs = map(
+                (name, value) -> "$name = $value",
+                arg_name_strs,
+                ($(args...),),
+            )
+            arg_definitions_str = join(arg_definition_strs, '\n')
+            recursively_unrolled_functions_file_path = escape_string(
+                joinpath(@__DIR__, "recursively_unrolled_functions.jl"),
+            )
+            load_recursively_unrolled_functions_str =
+                $load_recursively_unrolled_functions ?
+                "include(\"$recursively_unrolled_functions_file_path\")" :
+                ""
+            command_str(func_str) = """
+                using UnrolledUtilities
+                $arg_definitions_str
+                $load_recursively_unrolled_functions_str
+                Base.cumulative_compile_timing(true)
+                nanoseconds1 = Base.cumulative_compile_time_ns()[1]
+                rss_bytes_1 = Sys.maxrss()
+                Δgc_bytes = @allocated $func_str
+                rss_bytes_2 = Sys.maxrss()
+                nanoseconds2 = Base.cumulative_compile_time_ns()[1]
+                Base.cumulative_compile_timing(false)
+                Δnanoseconds = nanoseconds2 - nanoseconds1
+                Δrss_bytes = rss_bytes_2 - rss_bytes_1
+                print(Δnanoseconds, ", ", Δgc_bytes, ", ", Δrss_bytes)
+                """
+            julia_cmd = `$(Base.julia_cmd()) --startup-file=no --project=$(Base.active_project())`
+
+            # Each process gets its own buffer to avoid a potential data race:
+            # discourse.julialang.org/t/iobuffer-becomes-not-writable-after-run/92323/3
+            unrolled_buffer = IOBuffer()
+            unrolled_command_str = command_str($(string(unrolled_expr)))
+            run(
+                pipeline(
+                    `$julia_cmd -e $unrolled_command_str`,
+                    unrolled_buffer,
+                ),
+            )
+            unrolled_compile_time, unrolled_total_memory, unrolled_total_rss =
+                parse.(
+                    (Int, Int, Int),
+                    split(String(take!(unrolled_buffer)), ','),
+                )
+            close(unrolled_buffer)
+
+            reference_buffer = IOBuffer()
+            reference_command_str = command_str($(string(reference_expr)))
+            run(
+                pipeline(
+                    `$julia_cmd -e $reference_command_str`,
+                    reference_buffer,
+                ),
+            )
             reference_compile_time,
-            time_string,
-        )
-        memory_str = comparison_string(
-            (unrolled_total_memory, unrolled_total_rss),
-            (reference_total_memory, reference_total_rss),
-            ((gc_bytes, rss_bytes),) ->
-                rss_bytes == 0 ? memory_string(gc_bytes) :
-                "$(memory_string(gc_bytes)) [$(memory_string(rss_bytes))]";
-            to_number = first, # Use GC number since RSS might be unavailable.
-        )
+            reference_total_memory,
+            reference_total_rss =
+                parse.(
+                    (Int, Int, Int),
+                    split(String(take!(reference_buffer)), ','),
+                )
+            close(reference_buffer)
+
+            (
+                comparison_string(
+                    unrolled_run_time,
+                    reference_run_time,
+                    time_string;
+                    epsilon = 50, # Ignore differences between times < 50 ns.
+                ),
+                comparison_string(
+                    unrolled_compile_time,
+                    reference_compile_time,
+                    time_string,
+                ),
+                comparison_string(
+                    (unrolled_total_memory, unrolled_total_rss),
+                    (reference_total_memory, reference_total_rss),
+                    ((gc_bytes, rss_bytes),) ->
+                        rss_bytes == 0 ? memory_string(gc_bytes) :
+                        "$(memory_string(gc_bytes)) [$(memory_string(rss_bytes))]";
+                    to_number = first, # Use GC number since RSS might be unavailable.
+                ),
+            )
+        else
+            ("not measured", "not measured", "not measured")
+        end
 
         dict_key = ($unrolled_expr_str, $reference_expr_str)
         dict_entry = (
