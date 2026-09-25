@@ -54,42 +54,43 @@ end
     return nothing
 end
 
-@inline _unrolled_reduce(::Val{0}, op, itr, init) = empty_reduction_value(init)
-@inline _unrolled_reduce(::Val{1}, op, itr, init) =
-    first_reduction_value(op, itr, init)
-@inline _unrolled_reduce(::Val{2}, op, itr, init) =
-    op(first_reduction_value(op, itr, init), generic_getindex(itr, 2))
-@inline _unrolled_reduce(::Val{3}, op, itr, init) = op(
-    op(first_reduction_value(op, itr, init), generic_getindex(itr, 2)),
-    generic_getindex(itr, 3),
+@inline _unrolled_mapreduce(::Val{0}, f, op, itr, init) =
+    empty_reduction_value(init)
+@inline _unrolled_mapreduce(::Val{1}, f, op, itr, init) =
+    first_mapreduce_value(f, op, itr, init)
+@inline _unrolled_mapreduce(::Val{2}, f, op, itr, init) =
+    op(first_mapreduce_value(f, op, itr, init), f(generic_getindex(itr, 2)))
+@inline _unrolled_mapreduce(::Val{3}, f, op, itr, init) = op(
+    op(first_mapreduce_value(f, op, itr, init), f(generic_getindex(itr, 2))),
+    f(generic_getindex(itr, 3)),
 )
-@generated _unrolled_reduce(::Val{N}, op, itr, init) where {N} = quote
+@generated _unrolled_mapreduce(::Val{N}, f, op, itr, init) where {N} = quote
     @inline
-    value_1 = first_reduction_value(op, itr, init)
+    value_1 = first_mapreduce_value(f, op, itr, init)
     Base.Cartesian.@nexprs $(N - 1) n ->
-        (value_{n + 1} = op(value_n, generic_getindex(itr, n + 1)))
+        (value_{n + 1} = op(value_n, f(generic_getindex(itr, n + 1))))
     return $(Symbol(:value_, N))
 end
 
 @inline _unrolled_accumulate(::Val{0}, op, itr, init) = ()
 @inline function _unrolled_accumulate(::Val{1}, op, itr, init)
-    value_1 = first_reduction_value(op, itr, init)
+    value_1 = first_mapreduce_value(identity, op, itr, init)
     return (value_1,)
 end
 @inline function _unrolled_accumulate(::Val{2}, op, itr, init)
-    value_1 = first_reduction_value(op, itr, init)
+    value_1 = first_mapreduce_value(identity, op, itr, init)
     value_2 = op(value_1, generic_getindex(itr, 2))
     return (value_1, value_2)
 end
 @inline function _unrolled_accumulate(::Val{3}, op, itr, init)
-    value_1 = first_reduction_value(op, itr, init)
+    value_1 = first_mapreduce_value(identity, op, itr, init)
     value_2 = op(value_1, generic_getindex(itr, 2))
     value_3 = op(value_2, generic_getindex(itr, 3))
     return (value_1, value_2, value_3)
 end
 @generated _unrolled_accumulate(::Val{N}, op, itr, init) where {N} = quote
     @inline
-    value_1 = first_reduction_value(op, itr, init)
+    value_1 = first_mapreduce_value(identity, op, itr, init)
     Base.Cartesian.@nexprs $(N - 1) n ->
         (value_{n + 1} = op(value_n, generic_getindex(itr, n + 1)))
     return Base.Cartesian.@ntuple $N n -> value_n

@@ -90,6 +90,8 @@ end
 @inline empty_output(::Type{StaticBitVector{<:Any, U}}) where {U} =
     StaticBitVector{0, U}()
 
+@inline non_lazy_iterator(itr::StaticBitVector) = itr
+
 @inline unrolled_map_into(::Type{StaticBitVector{<:Any, U}}, f, itr) where {U} =
     StaticBitVector{length(itr), U}(
         Base.Fix1(generic_getindex, Iterators.map(f, itr)),

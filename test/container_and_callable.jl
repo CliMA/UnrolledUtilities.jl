@@ -149,6 +149,8 @@ end
           (true, true, 10, 20)
     @test unrolled_append(StaticBitVector{2}(true), (true, 42)) ===
           (true, true, true, 42)
+    @test unrolled_map((b, x) -> x, StaticBitVector{2}(true), (true, 42)) ===
+          (true, 42)
     @test unrolled_push(StaticBitVector{2}(true), 42) == (true, true, 42)
     @test unrolled_setindex(StaticBitVector{2}(true), 42, Val(1)) == (42, true)
     @test unrolled_insert(StaticBitVector{2}(true), 42, Val(2)) ==
@@ -187,6 +189,7 @@ end
     @test_throws ArgumentError unrolled_insert(nt, 10, Val(2))
     @test_throws ArgumentError unrolled_append(nt, nt)
     @test_throws ArgumentError unrolled_filter(isodd, nt)
+    @test_throws ArgumentError unrolled_filter(Returns(false), nt)
     @test_throws ArgumentError unrolled_unique((a = 1, b = 1, c = 2))
     @test_throws ArgumentError unrolled_split(isodd, nt)
     @test_throws ArgumentError unrolled_flatten((nt, nt))
@@ -239,6 +242,17 @@ end
     end
 end
 
+@testset "unrolled_map and unrolled_foreach fast paths" begin
+    @test unrolled_map((x, y, z) -> x + y + z, (1, 2), (10, 20), (100, 200)) ===
+          (111, 222)
+    @test unrolled_map(+, (a = 1, b = 2), (a = 10, b = 20)) === (a = 11, b = 22)
+    @test unrolled_map(+, SVector(1, 2, 3), SVector(10, 20, 30)) ===
+          SVector(11, 22, 33)
+    acc = Ref(0)
+    unrolled_foreach((x, y) -> (acc[] += x + y), SVector(1, 2), SVector(10, 20))
+    @test acc[] == 33
+end
+
 @testset "StaticSequence indexing and NamedTuple wrappers" begin
     @test StaticOneTo(3)[2] === 2
     @test_throws BoundsError StaticOneTo(3)[4]
@@ -250,4 +264,65 @@ end
     @test unrolled_take(Iterators.reverse(nt), Val(2)) === (c = 3, b = 2)
     @test unrolled_product((a = 1, b = 2), (a = 3, b = 4)) ===
           ((1, 3), (2, 3), (1, 4), (2, 4))
+end
+
+# A reduction that recurses through the callable of unrolled_mapreduce over
+# several iterators, modeled on the tensor projections of ClimaCore. The
+# functions are defined at the top level, since the recursion limit of a
+# closure defined in a testset differs from that of a function.
+struct Wrapper{T}
+    value::T
+end
+wrapped_type(::Type{Wrapper{T}}) where {T} = T
+field_vals(::Type{T}) where {T} =
+    ntuple(i -> Val(fieldtype(T, i)), Val(fieldcount(T)))
+struct Axis end
+struct Vec end
+nested_metric(::Nothing, _, metric) = nothing
+nested_metric(::Axis, _, metric) = nothing
+nested_metric(::Axis, ::Val{Vec}, metric) = Some(metric)
+combine_metrics(metric1, metric2) = isnothing(metric1) ? metric2 : metric1
+nested_metric(axis::Axis, ::Val{W}, metric) where {W <: Wrapper} =
+    unrolled_mapreduce(
+        val -> nested_metric(axis, val, metric),
+        combine_metrics,
+        field_vals(wrapped_type(W));
+        init = nothing,
+    )
+nested_metric(::Union{Tuple, NamedTuple}, _, metric) = nothing
+nested_metric(axes::Union{Tuple, NamedTuple}, val::Val{Vec}, metric) =
+    unrolled_mapreduce(
+        component_axes -> nested_metric(component_axes, val, metric),
+        combine_metrics,
+        values(axes);
+        init = nothing,
+    )
+nested_metric(
+    axes::Union{Tuple, NamedTuple},
+    ::Val{W},
+    metric,
+) where {W <: Wrapper} = unrolled_mapreduce(
+    (component_axes, val) -> nested_metric(component_axes, val, metric),
+    combine_metrics,
+    values(axes),
+    field_vals(wrapped_type(W));
+    init = nothing,
+)
+
+@testset "recursion through functions of several iterators" begin
+    W = Wrapper{
+        @NamedTuple{
+            a::Wrapper{Tuple{}},
+            b::Float64,
+            c::Wrapper{
+                Tuple{
+                    Wrapper{@NamedTuple{d::Wrapper{Tuple{Float64}}}},
+                    Vec,
+                    Wrapper{@NamedTuple{}},
+                },
+            },
+        },
+    }
+    axes = (a = nothing, b = Axis(), c = (nothing, Axis(), nothing))
+    @test (@inferred nested_metric(axes, Val(W), 2.0)) === Some(2.0)
 end
