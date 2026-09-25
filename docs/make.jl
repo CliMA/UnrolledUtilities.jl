@@ -17,9 +17,12 @@ comparison_table_titles = (
     "Manual vs. Recursive Unrolling",
 )
 
-# The benchmarks take about half an hour, so pull request previews contain only
-# the section headings; the deployed documentation contains the full tables.
-if get(ENV, "UNROLLED_UTILITIES_BENCHMARK", "false") == "true"
+# The tables come from the benchmarks in test/test_and_analyze.jl, which take
+# about half an hour. Setting UNROLLED_UTILITIES_BENCHMARK=false builds the
+# documentation without them, with only the section headings that other pages
+# link to.
+if get(ENV, "UNROLLED_UTILITIES_BENCHMARK", "true") == "true"
+    ENV["UNROLLED_UTILITIES_BENCHMARK"] = "true" # read by test_and_analyze.jl
     include(joinpath(@__DIR__, "..", "test", "test_and_analyze.jl"))
     Tuple(keys(comparison_table_dicts)) == comparison_table_titles ||
         error("comparison_table_titles does not match test_and_analyze.jl")
@@ -32,10 +35,9 @@ else
     open(comparison_tables_file, "a") do io
         println(
             io,
-            "\n!!! note \"Tables omitted from this build\"\n    The comparison \
-             tables are generated when the documentation is built with the \
-             environment variable `UNROLLED_UTILITIES_BENCHMARK` set to `true`, \
-             as it is for the deployed documentation.",
+            "\n!!! note \"Tables omitted from this build\"\n    This build \
+             was made with `UNROLLED_UTILITIES_BENCHMARK=false`, which skips \
+             the benchmarks that generate the comparison tables.",
         )
         for title in comparison_table_titles
             println(io, "\n## $title\n")
@@ -46,10 +48,14 @@ end
 makedocs(;
     sitename = "UnrolledUtilities.jl",
     modules = [UnrolledUtilities],
+    checkdocs = :exports,
     pages = [
         "Home" => "index.md",
         "Introduction" => "introduction.md",
         "User Guide" => "user_guide.md",
+        "Cookbook" => "cookbook.md",
+        "Compilation Limits" => "limits.md",
+        "API Reference" => "api.md",
         "Developer Guide" => "developer_guide.md",
         "Comparison Tables" => basename(comparison_tables_file),
     ],
@@ -57,6 +63,7 @@ makedocs(;
         prettyurls = get(ENV, "CI", nothing) == "true",
         sidebar_sitename = false,
         size_threshold_ignore = [
+            "api.md",
             "introduction.md",
             basename(comparison_tables_file),
         ],

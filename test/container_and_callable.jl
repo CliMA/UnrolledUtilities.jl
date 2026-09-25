@@ -120,12 +120,18 @@ end
           (true, false, true, false, true)
     @test counter_bv.count == 5
 
+    @test StaticBitVector{3}((true, false, true)) === StaticBitVector{3}(isodd)
+    @test StaticBitVector{3}(true) === StaticBitVector{3}((true, true, true))
     @test StaticBitVector{3}((0xff,)) === StaticBitVector{3}(true)
     @test_throws ArgumentError StaticBitVector{20}((0x01,))
     @test unrolled_take(StaticBitVector{19}(true), Val(3)) ===
           StaticBitVector{3}(true)
     @test_throws BoundsError unrolled_take(StaticBitVector{3}(true), Val(-1))
     @test_throws BoundsError unrolled_drop(StaticBitVector{3}(true), Val(-1))
+    @test repr(StaticBitVector{3}(isodd)) ==
+          "StaticBitVector{3, UInt8}((true, false, true))"
+    @test_throws ArgumentError unrolled_reduce(+, ())
+    @test_throws ArgumentError unrolled_maximum(())
 
     bv3 = StaticBitVector{3}(false)
     @test Tuple(unrolled_insert(bv3, true, Val(1))) ==
