@@ -9,9 +9,11 @@ import StaticArrays: SVector, MVector
 @inline UnrolledUtilities.output_type_for_promotion(::MVector) = MVector
 @inline UnrolledUtilities.constructor_from_tuple(::Type{MVector}) = MVector
 
-@inline UnrolledUtilities.unrolled_map(f::F, v::SVector{N}) where {F, N} =
-    SVector{N}(UnrolledUtilities.unrolled_map(f, Tuple(v)))
-@inline UnrolledUtilities.unrolled_map(
+Base.@propagate_inbounds UnrolledUtilities.unrolled_map(
+    f::F,
+    v::SVector{N},
+) where {F, N} = SVector{N}(UnrolledUtilities.unrolled_map(f, Tuple(v)))
+Base.@propagate_inbounds UnrolledUtilities.unrolled_map(
     f::F,
     v1::SVector{N},
     v2::SVector{N},

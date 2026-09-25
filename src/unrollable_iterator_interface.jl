@@ -5,14 +5,14 @@ Identical to `getindex(itr, n)`, but with the added ability to handle lazy
 iterator types defined in the standard library, such as `Base.Generator` and
 `Iterators.Enumerate`.
 """
-@inline generic_getindex(itr, n) = getindex(itr, n)
-@inline generic_getindex(itr::Base.Generator, n) =
+Base.@propagate_inbounds generic_getindex(itr, n) = getindex(itr, n)
+Base.@propagate_inbounds generic_getindex(itr::Base.Generator, n) =
     itr.f(generic_getindex(itr.iter, n))
-@inline generic_getindex(itr::Iterators.Reverse, n) =
+Base.@propagate_inbounds generic_getindex(itr::Iterators.Reverse, n) =
     generic_getindex(itr.itr, length(itr.itr) - n + 1)
-@inline generic_getindex(itr::Iterators.Enumerate, n) =
+Base.@propagate_inbounds generic_getindex(itr::Iterators.Enumerate, n) =
     (n, generic_getindex(itr.itr, n))
-@inline generic_getindex(itr::Iterators.Zip, n) =
+Base.@propagate_inbounds generic_getindex(itr::Iterators.Zip, n) =
     unrolled_map(Base.Fix2(generic_getindex, n), itr.is)
 
 @inline eltype_for_promotion(itr::Union{Tuple, NamedTuple}) =

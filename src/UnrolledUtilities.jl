@@ -59,21 +59,26 @@ struct NoInit end
     error("unrolled_reduce requires an init value for empty iterators")
 @inline empty_reduction_value(init) = init
 
-@inline first_reduction_value(op, itr, ::NoInit) = generic_getindex(itr, 1)
-@inline first_reduction_value(op, itr, init) =
+Base.@propagate_inbounds first_reduction_value(op, itr, ::NoInit) =
+    generic_getindex(itr, 1)
+Base.@propagate_inbounds first_reduction_value(op, itr, init) =
     op(init, generic_getindex(itr, 1))
 
-@inline first_mapreduce_value(f, op, itr, ::NoInit) =
+Base.@propagate_inbounds first_mapreduce_value(f, op, itr, ::NoInit) =
     f(generic_getindex(itr, 1))
-@inline first_mapreduce_value(f, op, itr, init) =
+Base.@propagate_inbounds first_mapreduce_value(f, op, itr, init) =
     op(init, f(generic_getindex(itr, 1)))
 
 # Analogue of ∘, but with only one function argument and guaranteed inlining.
 # Base's ∘ leads to type instabilities in unit tests on Julia 1.10 and 1.11.
-@inline ⋅(f1::F1, f2::F2) where {F1, F2} = x -> (@inline f1(f2(x)))
-@inline ⋅(::Type{T}, f::F) where {T, F} = x -> (@inline T(f(x)))
-@inline ⋅(f::F, ::Type{T}) where {F, T} = x -> (@inline f(T(x)))
-@inline ⋅(::Type{T1}, ::Type{T2}) where {T1, T2} = x -> (@inline T1(T2(x)))
+@inline ⋅(f1::F1, f2::F2) where {F1, F2} =
+    x -> (Base.@_propagate_inbounds_meta; f1(f2(x)))
+@inline ⋅(::Type{T}, f::F) where {T, F} =
+    x -> (Base.@_propagate_inbounds_meta; T(f(x)))
+@inline ⋅(f::F, ::Type{T}) where {F, T} =
+    x -> (Base.@_propagate_inbounds_meta; f(T(x)))
+@inline ⋅(::Type{T1}, ::Type{T2}) where {T1, T2} =
+    x -> (Base.@_propagate_inbounds_meta; T1(T2(x)))
 
 ##
 ## Types with optimized methods for unrolled functions
@@ -91,7 +96,7 @@ abstract type StaticSequence{N} end
 @inline Base.length(::StaticSequence{N}) where {N} = N
 @inline Base.firstindex(::StaticSequence) = 1
 @inline Base.lastindex(itr::StaticSequence) = length(itr)
-@inline Base.getindex(itr::StaticSequence, n::Integer) =
+Base.@propagate_inbounds Base.getindex(itr::StaticSequence, n::Integer) =
     generic_getindex(itr, n)
 @inline Base.iterate(itr::StaticSequence, n = 1) =
     n > length(itr) ? nothing : (generic_getindex(itr, n), n + 1)
@@ -206,13 +211,13 @@ include("manually_unrolled_functions.jl")
 # The unrolled_map function could also be implemented in terms of ntuple, but
 # then it would be subject to the same recursion limit as ntuple. On Julia 1.10,
 # this leads to type instabilities in several unit tests for nested iterators.
-@inline unrolled_map_into_tuple(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_map_into_tuple(f::F, itr) where {F} =
     _unrolled_map(Val(length(itr)), f, itr)
-@inline unrolled_map_into(output_type, f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_map_into(output_type, f::F, itr) where {F} =
     constructor_from_tuple(output_type)(unrolled_map_into_tuple(f, itr))
-@inline unrolled_map(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_map(f::F, itr) where {F} =
     unrolled_map_into(inferred_output_type(Iterators.map(f, itr)), f, itr)
-@inline unrolled_map(f::F, itrs...) where {F} =
+Base.@propagate_inbounds unrolled_map(f::F, itrs...) where {F} =
     unrolled_map(splat(f), zip(itrs...))
 
 # Fast paths for common container types and small tuples to avoid @generated
@@ -256,14 +261,16 @@ Base.@propagate_inbounds unrolled_map(
     return Base.Cartesian.@ntuple $(min(N1, N2)) n -> f(itr1[n], itr2[n])
 end
 
-@inline unrolled_map(f::F, nt::NamedTuple{names}) where {F, names} =
-    NamedTuple{names}(unrolled_map(f, Tuple(nt)))
-@inline unrolled_map(
+Base.@propagate_inbounds unrolled_map(
+    f::F,
+    nt::NamedTuple{names},
+) where {F, names} = NamedTuple{names}(unrolled_map(f, Tuple(nt)))
+Base.@propagate_inbounds unrolled_map(
     f::F,
     nt1::NamedTuple{names},
     nt2::NamedTuple{names},
 ) where {F, names} = NamedTuple{names}(unrolled_map(f, Tuple(nt1), Tuple(nt2)))
-@inline unrolled_map(f::F, r::StaticOneTo) where {F} =
+Base.@propagate_inbounds unrolled_map(f::F, r::StaticOneTo) where {F} =
     unrolled_map_into_tuple(f, r)
 
 @generated function unrolled_map(f, itr::Iterators.Zip{<:Tuple{Vararg{Tuple}}})
@@ -284,12 +291,12 @@ end
         K = length(ts)
         exprs = [:(f(($([:(itr.is[$k][$n]) for k in 1:K]...),))) for n in 1:N]
         return quote
-            @inline
+            Base.@_propagate_inbounds_meta
             return ($(exprs...),)
         end
     else
         return quote
-            @inline
+            Base.@_propagate_inbounds_meta
             return unrolled_map_into(
                 inferred_output_type(Iterators.map(f, itr)),
                 f,
@@ -299,49 +306,71 @@ end
     end
 end
 
-@inline unrolled_any(itr) = unrolled_any(identity, itr)
-@inline unrolled_any(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_any(itr) = unrolled_any(identity, itr)
+Base.@propagate_inbounds unrolled_any(f::F, itr) where {F} =
     _unrolled_any(Val(length(itr)), f, itr)
 
-@inline unrolled_all(itr) = unrolled_all(identity, itr)
-@inline unrolled_all(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_all(itr) = unrolled_all(identity, itr)
+Base.@propagate_inbounds unrolled_all(f::F, itr) where {F} =
     _unrolled_all(Val(length(itr)), f, itr)
 
-@inline unrolled_foreach(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_foreach(f::F, itr) where {F} =
     _unrolled_foreach(Val(length(itr)), f, itr)
-@inline unrolled_foreach(f, itrs...) = unrolled_foreach(splat(f), zip(itrs...))
+Base.@propagate_inbounds unrolled_foreach(f, itrs...) =
+    unrolled_foreach(splat(f), zip(itrs...))
 
-@inline unrolled_reduce(op::O, itr, init) where {O} =
+Base.@propagate_inbounds unrolled_reduce(op::O, itr, init) where {O} =
     _unrolled_reduce(Val(length(itr)), op, itr, init)
-@inline unrolled_reduce(op::O, itr; init = NoInit()) where {O} =
-    unrolled_reduce(op, itr, init)
+Base.@propagate_inbounds unrolled_reduce(
+    op::O,
+    itr;
+    init = NoInit(),
+) where {O} = unrolled_reduce(op, itr, init)
 
-@inline unrolled_mapreduce(f::F, op::O, itr; init = NoInit()) where {F, O} =
-    _unrolled_mapreduce(Val(length(itr)), f, op, itr, init)
-@inline unrolled_mapreduce(f::F, op::O, itrs...; init = NoInit()) where {F, O} =
-    _unrolled_mapreduce(
-        Val(length(zip(itrs...))),
-        splat(f),
-        op,
-        zip(itrs...),
-        init,
-    )
+Base.@propagate_inbounds unrolled_mapreduce(
+    f::F,
+    op::O,
+    itr;
+    init = NoInit(),
+) where {F, O} = _unrolled_mapreduce(Val(length(itr)), f, op, itr, init)
+Base.@propagate_inbounds unrolled_mapreduce(
+    f::F,
+    op::O,
+    itrs...;
+    init = NoInit(),
+) where {F, O} = _unrolled_mapreduce(
+    Val(length(zip(itrs...))),
+    splat(f),
+    op,
+    zip(itrs...),
+    init,
+)
 
-@inline unrolled_accumulate_into_tuple(op::O, itr, init) where {O} =
-    _unrolled_accumulate(Val(length(itr)), op, itr, init)
-@inline unrolled_accumulate_into(output_type, op::O, itr, init) where {O} =
-    constructor_from_tuple(output_type)(
-        unrolled_accumulate_into_tuple(op, itr, init),
-    )
-@inline unrolled_accumulate(op::O, itr, init) where {O} =
+Base.@propagate_inbounds unrolled_accumulate_into_tuple(
+    op::O,
+    itr,
+    init,
+) where {O} = _unrolled_accumulate(Val(length(itr)), op, itr, init)
+Base.@propagate_inbounds unrolled_accumulate_into(
+    output_type,
+    op::O,
+    itr,
+    init,
+) where {O} = constructor_from_tuple(output_type)(
+    unrolled_accumulate_into_tuple(op, itr, init),
+)
+Base.@propagate_inbounds unrolled_accumulate(op::O, itr, init) where {O} =
     unrolled_accumulate_into(
         unrolled_accumulate_output_type(op, itr, init),
         op,
         itr,
         init,
     )
-@inline unrolled_accumulate(op::O, itr; init = NoInit()) where {O} =
-    unrolled_accumulate(op, itr, init)
+Base.@propagate_inbounds unrolled_accumulate(
+    op::O,
+    itr;
+    init = NoInit(),
+) where {O} = unrolled_accumulate(op, itr, init)
 
 # The unrolled_ifelse function is for internal use, and it is not exported.
 # With one iterator as an argument, it is similar to
@@ -351,7 +380,7 @@ end
 # When f compares a constant isbits value computed from each item against a
 # non-constant isbits value (as in unrolled_applyat), unrolled_ifelse is
 # optimized into a switch instruction during LLVM code generation.
-@inline unrolled_ifelse(
+Base.@propagate_inbounds unrolled_ifelse(
     f::F,
     get_if::I,
     get_else::E,
@@ -364,14 +393,15 @@ end
 ## Unrolled functions without any analogues in Base
 ##
 
-@inline unrolled_applyat(f::F, n, itr) where {F} = unrolled_ifelse(
-    ==(n),
-    f,
-    () -> Base.throw_boundserror(itr, n),
-    static_range(itr),
-    itr,
-)
-@inline unrolled_applyat(f::F, n, itrs...) where {F} =
+Base.@propagate_inbounds unrolled_applyat(f::F, n, itr) where {F} =
+    unrolled_ifelse(
+        ==(n),
+        f,
+        () -> Base.throw_boundserror(itr, n),
+        static_range(itr),
+        itr,
+    )
+Base.@propagate_inbounds unrolled_applyat(f::F, n, itrs...) where {F} =
     unrolled_applyat(splat(f), n, zip(itrs...))
 
 ##
@@ -380,7 +410,8 @@ end
 
 # Using === instead of == or isequal improves type stability for singletons.
 
-@inline unrolled_in(item, itr) = unrolled_any(Base.Fix1(===, item), itr)
+Base.@propagate_inbounds unrolled_in(item, itr) =
+    unrolled_any(Base.Fix1(===, item), itr)
 
 # Like unrolled_filter, unrolled_unique flattens a Tuple of empty or
 # singleton Tuples with unrolled_flatmap_into. An item is kept when no
@@ -392,44 +423,50 @@ end
 # The values of f are computed lazily for singleton functions, whose calls can
 # be constant folded, and once per item for all other callables (e.g., stateful
 # structs), whose calls may be expensive or have side effects.
-@inline mapped_values(f::F, itr) where {F} =
+Base.@propagate_inbounds mapped_values(f::F, itr) where {F} =
     Base.issingletontype(F) ? Iterators.map(f, itr) :
     unrolled_map_into_tuple(f, itr)
 
-@inline function is_first_occurrence(values, n)
+Base.@propagate_inbounds function is_first_occurrence(values, n)
     value_n = generic_getindex(values, n)
     return unrolled_all(static_range(values)) do m
-        @inline
+        Base.@_propagate_inbounds_meta
         m >= n || generic_getindex(values, m) !== value_n
     end
 end
 
-@inline unrolled_unique(itr) = unrolled_unique(identity, itr)
-@inline unrolled_unique(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_unique(itr) = unrolled_unique(identity, itr)
+Base.@propagate_inbounds unrolled_unique(f::F, itr) where {F} =
     unrolled_unique_into(inferred_output_type(itr), f, itr)
-@inline function unrolled_unique_into(output_type, f::F, itr) where {F}
+Base.@propagate_inbounds function unrolled_unique_into(
+    output_type,
+    f::F,
+    itr,
+) where {F}
     f_values = mapped_values(f, itr)
     return unrolled_flatmap_into(output_type, static_range(itr)) do n
-        @inline
+        Base.@_propagate_inbounds_meta
         is_first_occurrence(f_values, n) ? (generic_getindex(itr, n),) : ()
     end
 end
 
-@inline unrolled_allunique(itr) = unrolled_allunique(identity, itr)
-@inline function unrolled_allunique(f::F, itr) where {F}
+Base.@propagate_inbounds unrolled_allunique(itr) =
+    unrolled_allunique(identity, itr)
+Base.@propagate_inbounds function unrolled_allunique(f::F, itr) where {F}
     f_values = mapped_values(f, itr)
     return unrolled_all(static_range(itr)) do n
-        @inline
+        Base.@_propagate_inbounds_meta
         is_first_occurrence(f_values, n)
     end
 end
 
-@inline unrolled_allequal(itr) = unrolled_allequal(identity, itr)
-@inline function unrolled_allequal(f::F, itr) where {F}
+Base.@propagate_inbounds unrolled_allequal(itr) =
+    unrolled_allequal(identity, itr)
+Base.@propagate_inbounds function unrolled_allequal(f::F, itr) where {F}
     length(itr) <= 1 && return true
     f_first = f(generic_getindex(itr, 1))
     return unrolled_all(StaticOneTo(length(itr) - 1)) do n
-        @inline
+        Base.@_propagate_inbounds_meta
         f(generic_getindex(itr, n + 1)) === f_first
     end
 end
@@ -438,39 +475,44 @@ end
 ## Unrolled analogues of functions from base/reduce.jl and base/accumulate.jl
 ##
 
-@inline unrolled_sum(itr; init = NoInit()) = unrolled_sum(identity, itr; init)
-@inline unrolled_sum(f::F, itr; init = NoInit()) where {F} =
+Base.@propagate_inbounds unrolled_sum(itr; init = NoInit()) =
+    unrolled_sum(identity, itr; init)
+Base.@propagate_inbounds unrolled_sum(f::F, itr; init = NoInit()) where {F} =
     isempty(itr) ? (init isa NoInit ? 0 : init) :
     unrolled_mapreduce(f, +, itr; init)
 
-@inline unrolled_prod(itr; init = NoInit()) = unrolled_prod(identity, itr; init)
-@inline unrolled_prod(f::F, itr; init = NoInit()) where {F} =
+Base.@propagate_inbounds unrolled_prod(itr; init = NoInit()) =
+    unrolled_prod(identity, itr; init)
+Base.@propagate_inbounds unrolled_prod(f::F, itr; init = NoInit()) where {F} =
     isempty(itr) ? (init isa NoInit ? 1 : init) :
     unrolled_mapreduce(f, *, itr; init)
 
-@inline unrolled_cumsum(itr) = unrolled_cumsum(identity, itr)
-@inline unrolled_cumsum(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_cumsum(itr) = unrolled_cumsum(identity, itr)
+Base.@propagate_inbounds unrolled_cumsum(f::F, itr) where {F} =
     unrolled_accumulate(+, unrolled_map(f, itr))
 
-@inline unrolled_cumprod(itr) = unrolled_cumprod(identity, itr)
-@inline unrolled_cumprod(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_cumprod(itr) = unrolled_cumprod(identity, itr)
+Base.@propagate_inbounds unrolled_cumprod(f::F, itr) where {F} =
     unrolled_accumulate(*, unrolled_map(f, itr))
 
-@inline unrolled_count(itr) = unrolled_count(identity, itr)
-@inline unrolled_count(f::F, itr) where {F} = unrolled_sum(Int ⋅ Bool ⋅ f, itr)
+Base.@propagate_inbounds unrolled_count(itr) = unrolled_count(identity, itr)
+Base.@propagate_inbounds unrolled_count(f::F, itr) where {F} =
+    unrolled_sum(Int ⋅ Bool ⋅ f, itr)
 
-@inline unrolled_maximum(itr) = unrolled_maximum(identity, itr)
-@inline unrolled_maximum(f::F, itr) where {F} = unrolled_mapreduce(f, max, itr)
+Base.@propagate_inbounds unrolled_maximum(itr) = unrolled_maximum(identity, itr)
+Base.@propagate_inbounds unrolled_maximum(f::F, itr) where {F} =
+    unrolled_mapreduce(f, max, itr)
 
-@inline unrolled_minimum(itr) = unrolled_minimum(identity, itr)
-@inline unrolled_minimum(f::F, itr) where {F} = unrolled_mapreduce(f, min, itr)
+Base.@propagate_inbounds unrolled_minimum(itr) = unrolled_minimum(identity, itr)
+Base.@propagate_inbounds unrolled_minimum(f::F, itr) where {F} =
+    unrolled_mapreduce(f, min, itr)
 
 @inline extrema_reduction_operator((f_min1, f_max1), (f_min2, f_max2)) =
     (min(f_min1, f_min2), max(f_max1, f_max2))
-@inline unrolled_extrema(itr) = unrolled_extrema(identity, itr)
-@inline unrolled_extrema(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_extrema(itr) = unrolled_extrema(identity, itr)
+Base.@propagate_inbounds unrolled_extrema(f::F, itr) where {F} =
     unrolled_mapreduce(extrema_reduction_operator, itr) do item
-        @inline
+        Base.@_propagate_inbounds_meta
         f_value = f(item)
         (f_value, f_value)
     end
@@ -485,33 +527,33 @@ end
 
 @inline findmax_reduction_operator((f_value1, value1), (f_value2, value2)) =
     isless(f_value1, f_value2) ? (f_value2, value2) : (f_value1, value1)
-@inline unrolled_findmax(itr) = unrolled_findmax(identity, itr)
-@inline unrolled_findmax(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_findmax(itr) = unrolled_findmax(identity, itr)
+Base.@propagate_inbounds unrolled_findmax(f::F, itr) where {F} =
     unrolled_mapreduce(findmax_reduction_operator, enumerate(itr)) do (n, item)
-        @inline
+        Base.@_propagate_inbounds_meta
         (f(item), n)
     end
 
 @inline findmin_reduction_operator((f_value1, value1), (f_value2, value2)) =
     isgreater(f_value1, f_value2) ? (f_value2, value2) : (f_value1, value1)
-@inline unrolled_findmin(itr) = unrolled_findmin(identity, itr)
-@inline unrolled_findmin(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_findmin(itr) = unrolled_findmin(identity, itr)
+Base.@propagate_inbounds unrolled_findmin(f::F, itr) where {F} =
     unrolled_mapreduce(findmin_reduction_operator, enumerate(itr)) do (n, item)
-        @inline
+        Base.@_propagate_inbounds_meta
         (f(item), n)
     end
 
-@inline unrolled_argmax(itr) = unrolled_findmax(itr)[2]
-@inline unrolled_argmax(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_argmax(itr) = unrolled_findmax(itr)[2]
+Base.@propagate_inbounds unrolled_argmax(f::F, itr) where {F} =
     unrolled_mapreduce(findmax_reduction_operator, itr) do item
-        @inline
+        Base.@_propagate_inbounds_meta
         (f(item), item)
     end[2]
 
-@inline unrolled_argmin(itr) = unrolled_findmin(itr)[2]
-@inline unrolled_argmin(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_argmin(itr) = unrolled_findmin(itr)[2]
+Base.@propagate_inbounds unrolled_argmin(f::F, itr) where {F} =
     unrolled_mapreduce(findmin_reduction_operator, itr) do item
-        @inline
+        Base.@_propagate_inbounds_meta
         (f(item), item)
     end[2]
 
@@ -519,27 +561,31 @@ end
 ## Unrolled analogues of functions from base/arrays.jl
 ##
 
-@inline unrolled_findfirst(itr) = unrolled_findfirst(identity, itr)
-@inline unrolled_findfirst(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_findfirst(itr) =
+    unrolled_findfirst(identity, itr)
+Base.@propagate_inbounds unrolled_findfirst(f::F, itr) where {F} =
     unrolled_ifelse(f, identity, Returns(nothing), itr, static_range(itr))
 
-@inline unrolled_findlast(itr) = unrolled_findlast(identity, itr)
-@inline unrolled_findlast(f::F, itr) where {F} = unrolled_ifelse(
-    f,
-    identity,
-    Returns(nothing),
-    Iterators.reverse(itr),
-    Iterators.reverse(static_range(itr)),
-)
+Base.@propagate_inbounds unrolled_findlast(itr) =
+    unrolled_findlast(identity, itr)
+Base.@propagate_inbounds unrolled_findlast(f::F, itr) where {F} =
+    unrolled_ifelse(
+        f,
+        identity,
+        Returns(nothing),
+        Iterators.reverse(itr),
+        Iterators.reverse(static_range(itr)),
+    )
 
-@inline unrolled_argfirst(f::F, itr) where {F} = unrolled_ifelse(
-    f,
-    identity,
-    () -> error("itr does not contain any items for which f(item) is true"),
-    itr,
-)
+Base.@propagate_inbounds unrolled_argfirst(f::F, itr) where {F} =
+    unrolled_ifelse(
+        f,
+        identity,
+        () -> error("itr does not contain any items for which f(item) is true"),
+        itr,
+    )
 
-@inline unrolled_arglast(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_arglast(f::F, itr) where {F} =
     unrolled_argfirst(f, Iterators.reverse(itr))
 
 # unrolled_filter, unrolled_split, and unrolled_unique select items by
@@ -567,26 +613,35 @@ end
 @inline tuple_into_output_type(output_type, items::Tuple) =
     unrolled_map_into(output_type, identity, items)
 
-@inline unrolled_flatmap_into(f::F, output_type, itr) where {F} =
-    tuple_into_output_type(
-        output_type,
-        unrolled_flatten(unrolled_map_into_tuple(f, itr)),
-    )
+Base.@propagate_inbounds unrolled_flatmap_into(
+    f::F,
+    output_type,
+    itr,
+) where {F} = tuple_into_output_type(
+    output_type,
+    unrolled_flatten(unrolled_map_into_tuple(f, itr)),
+)
 
-@inline unrolled_filter(f::F, itr) where {F} =
+Base.@propagate_inbounds unrolled_filter(f::F, itr) where {F} =
     unrolled_filter_into(inferred_output_type(itr), f, itr)
-@inline unrolled_filter_into(output_type, f::F, itr) where {F} =
-    unrolled_flatmap_into(
-        item -> (@inline; f(item) ? (item,) : ()),
-        output_type,
-        itr,
-    )
+Base.@propagate_inbounds unrolled_filter_into(
+    output_type,
+    f::F,
+    itr,
+) where {F} = unrolled_flatmap_into(
+    item -> (Base.@_propagate_inbounds_meta; f(item) ? (item,) : ()),
+    output_type,
+    itr,
+)
 
 # The values of f are computed only once per item, and they are stored in a
 # Tuple of (value, item) pairs so that both parts of the split can read them.
 # This also avoids negating f, which is only possible when f is a Function.
-@inline function unrolled_split(f::F, itr) where {F}
-    pairs = unrolled_map_into_tuple(item -> (@inline; (f(item), item)), itr)
+Base.@propagate_inbounds function unrolled_split(f::F, itr) where {F}
+    pairs = unrolled_map_into_tuple(
+        item -> (Base.@_propagate_inbounds_meta; (f(item), item)),
+        itr,
+    )
     output_type = inferred_output_type(itr)
     return (
         unrolled_flatmap_into(((b, x),) -> b ? (x,) : (), output_type, pairs),
@@ -610,7 +665,7 @@ function _flatten_tree_expr(lo::Int, hi::Int)
 end
 
 @generated _unrolled_flatten(::Val{N}, itr) where {N} = quote
-    @inline
+    Base.@_propagate_inbounds_meta
     return $(_flatten_tree_expr(1, N))
 end
 
@@ -624,7 +679,7 @@ end
     end
 end
 
-@inline unrolled_flatmap(f::F, itrs...) where {F} =
+Base.@propagate_inbounds unrolled_flatmap(f::F, itrs...) where {F} =
     unrolled_flatten(unrolled_map(f, itrs...))
 
 # The cumulative lengths are precomputed as a tuple of integers so that each
@@ -662,7 +717,7 @@ end
     ::Val{offset},
     ::Val{len},
 ) where {offset, len} = quote
-    @inline
+    Base.@_propagate_inbounds_meta
     return ($([:(itr[$(offset + k)]) for k in 1:len]...),)
 end
 @inline _unrolled_slice(
