@@ -205,3 +205,11 @@ end
         @test isequal(unrolled_findmin(itr), findmin(itr))
     end
 end
+
+@testset "unrolled_map fast paths" begin
+    @test unrolled_map((x, y, z) -> x + y + z, (1, 2), (10, 20), (100, 200)) ===
+          (111, 222)
+    @test unrolled_map(+, (a = 1, b = 2), (a = 10, b = 20)) === (a = 11, b = 22)
+    @test unrolled_map(+, SVector(1, 2, 3), SVector(10, 20, 30)) ===
+          SVector(11, 22, 33)
+end

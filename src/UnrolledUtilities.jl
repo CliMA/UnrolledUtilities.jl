@@ -63,6 +63,11 @@ struct NoInit end
 @inline first_reduction_value(op, itr, init) =
     op(init, generic_getindex(itr, 1))
 
+@inline first_mapreduce_value(f, op, itr, ::NoInit) =
+    f(generic_getindex(itr, 1))
+@inline first_mapreduce_value(f, op, itr, init) =
+    op(init, f(generic_getindex(itr, 1)))
+
 # Analogue of ∘, but with only one function argument and guaranteed inlining.
 # Base's ∘ leads to type instabilities in unit tests on Julia 1.10 and 1.11.
 @inline ⋅(f1::F1, f2::F2) where {F1, F2} = x -> (@inline f1(f2(x)))
@@ -120,6 +125,8 @@ include("StaticBitVector.jl")
 
 @inline unrolled_append_into(output_type, itr1, itr2) =
     constructor_from_tuple(output_type)(
+        itr1 isa Tuple && itr2 isa Tuple && length(itr1) + length(itr2) <= 32 ?
+        (itr1..., itr2...) :
         ntuple(Val(length(itr1) + length(itr2))) do n
             @inline
             n <= length(itr1) ? generic_getindex(itr1, n) :
@@ -208,13 +215,38 @@ include("manually_unrolled_functions.jl")
 @inline unrolled_map(f::F, itrs...) where {F} =
     unrolled_map(splat(f), zip(itrs...))
 
-# Add a fast path for tuples to reduce latency/allocations during compilation,
-# and replace @inline with @propagate_inbounds to support indexing operations.
-# NOTE: It might be a good idea to generalize this for other unrolled functions.
+# Fast paths for common container types and small tuples to avoid @generated
+# world-age/MethodInstance overhead and Base.promote_op inference queries.
+Base.@propagate_inbounds unrolled_map(f::F, ::Tuple{}) where {F} = ()
+Base.@propagate_inbounds unrolled_map(f::F, itr::Tuple{Any}) where {F} =
+    (f(itr[1]),)
+Base.@propagate_inbounds unrolled_map(f::F, itr::Tuple{Any, Any}) where {F} =
+    (f(itr[1]), f(itr[2]))
+Base.@propagate_inbounds unrolled_map(
+    f::F,
+    itr::Tuple{Any, Any, Any},
+) where {F} = (f(itr[1]), f(itr[2]), f(itr[3]))
 @generated unrolled_map(f, itr::NTuple{N, Any}) where {N} = quote
     Base.@_propagate_inbounds_meta
     return Base.Cartesian.@ntuple $N n -> f(itr[n])
 end
+
+Base.@propagate_inbounds unrolled_map(f::F, ::Tuple{}, ::Tuple{}) where {F} = ()
+Base.@propagate_inbounds unrolled_map(
+    f::F,
+    itr1::Tuple{Any},
+    itr2::Tuple{Any},
+) where {F} = (f(itr1[1], itr2[1]),)
+Base.@propagate_inbounds unrolled_map(
+    f::F,
+    itr1::Tuple{Any, Any},
+    itr2::Tuple{Any, Any},
+) where {F} = (f(itr1[1], itr2[1]), f(itr1[2], itr2[2]))
+Base.@propagate_inbounds unrolled_map(
+    f::F,
+    itr1::Tuple{Any, Any, Any},
+    itr2::Tuple{Any, Any, Any},
+) where {F} = (f(itr1[1], itr2[1]), f(itr1[2], itr2[2]), f(itr1[3], itr2[3]))
 @generated unrolled_map(
     f,
     itr1::NTuple{N1, Any},
@@ -222,6 +254,49 @@ end
 ) where {N1, N2} = quote
     Base.@_propagate_inbounds_meta
     return Base.Cartesian.@ntuple $(min(N1, N2)) n -> f(itr1[n], itr2[n])
+end
+
+@inline unrolled_map(f::F, nt::NamedTuple{names}) where {F, names} =
+    NamedTuple{names}(unrolled_map(f, Tuple(nt)))
+@inline unrolled_map(
+    f::F,
+    nt1::NamedTuple{names},
+    nt2::NamedTuple{names},
+) where {F, names} = NamedTuple{names}(unrolled_map(f, Tuple(nt1), Tuple(nt2)))
+@inline unrolled_map(f::F, r::StaticOneTo) where {F} =
+    unrolled_map_into_tuple(f, r)
+
+@generated function unrolled_map(f, itr::Iterators.Zip{<:Tuple{Vararg{Tuple}}})
+    ts = itr.parameters[1].parameters
+    if !isempty(ts) &&
+       !Base.isvarargtype(ts[end]) &&
+       all(
+           T ->
+               T isa DataType &&
+                   T <: Tuple &&
+                   (
+                       isempty(T.parameters) ||
+                       !Base.isvarargtype(T.parameters[end])
+                   ),
+           ts,
+       )
+        N = minimum(T -> length(T.parameters), ts)
+        K = length(ts)
+        exprs = [:(f(($([:(itr.is[$k][$n]) for k in 1:K]...),))) for n in 1:N]
+        return quote
+            @inline
+            return ($(exprs...),)
+        end
+    else
+        return quote
+            @inline
+            return unrolled_map_into(
+                inferred_output_type(Iterators.map(f, itr)),
+                f,
+                itr,
+            )
+        end
+    end
 end
 
 @inline unrolled_any(itr) = unrolled_any(identity, itr)
@@ -241,8 +316,16 @@ end
 @inline unrolled_reduce(op::O, itr; init = NoInit()) where {O} =
     unrolled_reduce(op, itr, init)
 
+@inline unrolled_mapreduce(f::F, op::O, itr; init = NoInit()) where {F, O} =
+    _unrolled_mapreduce(Val(length(itr)), f, op, itr, init)
 @inline unrolled_mapreduce(f::F, op::O, itrs...; init = NoInit()) where {F, O} =
-    unrolled_reduce(op, unrolled_map(f, itrs...), init)
+    _unrolled_mapreduce(
+        Val(length(zip(itrs...))),
+        splat(f),
+        op,
+        zip(itrs...),
+        init,
+    )
 
 @inline unrolled_accumulate_into_tuple(op::O, itr, init) where {O} =
     _unrolled_accumulate(Val(length(itr)), op, itr, init)
@@ -515,14 +598,31 @@ end
 ## Unrolled analogues of functions from base/iterators.jl
 ##
 
-@inline unrolled_flatten(itr) =
-    if isempty(itr)
-        inferred_empty(itr)
-    elseif length(itr) == 1
-        non_lazy_iterator(generic_getindex(itr, 1))
+function _flatten_tree_expr(lo::Int, hi::Int)
+    if lo == hi
+        return :(generic_getindex(itr, $lo))
     else
-        unrolled_reduce(unrolled_append, itr)
+        mid = (lo + hi) ÷ 2
+        left = _flatten_tree_expr(lo, mid)
+        right = _flatten_tree_expr(mid + 1, hi)
+        return :(unrolled_append($left, $right))
     end
+end
+
+@generated _unrolled_flatten(::Val{N}, itr) where {N} = quote
+    @inline
+    return $(_flatten_tree_expr(1, N))
+end
+
+@inline function unrolled_flatten(itr)
+    if isempty(itr)
+        return inferred_empty(itr)
+    elseif length(itr) == 1
+        return non_lazy_iterator(generic_getindex(itr, 1))
+    else
+        return _unrolled_flatten(Val(length(itr)), itr)
+    end
+end
 
 @inline unrolled_flatmap(f::F, itrs...) where {F} =
     unrolled_flatten(unrolled_map(f, itrs...))
@@ -555,12 +655,31 @@ end
 @inline unrolled_cycle(itr, ::Val{N}) where {N} =
     unrolled_flatten(ntuple(Returns(itr), Val(N)))
 
+@inline _unrolled_slice(itr, ::Val{offset}, ::Val{len}) where {offset, len} =
+    unrolled_drop(unrolled_take(itr, Val(offset + len)), Val(offset))
+@generated _unrolled_slice(
+    itr::Tuple,
+    ::Val{offset},
+    ::Val{len},
+) where {offset, len} = quote
+    @inline
+    return ($([:(itr[$(offset + k)]) for k in 1:len]...),)
+end
+@inline _unrolled_slice(
+    nt::NamedTuple{names},
+    ::Val{offset},
+    ::Val{len},
+) where {names, offset, len} =
+    NamedTuple{_unrolled_slice(names, Val(offset), Val(len))}(
+        _unrolled_slice(Tuple(nt), Val(offset), Val(len)),
+    )
+
 @inline unrolled_partition(itr, ::Val{N}) where {N} =
     ntuple(Val(cld(length(itr), N))) do partition_number
         @inline
         first_index = N * (partition_number - 1)
         last_index = min(length(itr), N * partition_number)
-        unrolled_drop(unrolled_take(itr, Val(last_index)), Val(first_index))
+        _unrolled_slice(itr, Val(first_index), Val(last_index - first_index))
     end
 
 ##
