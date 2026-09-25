@@ -5,15 +5,17 @@ Identical to `getindex(itr, n)`, but with the added ability to handle lazy
 iterator types defined in the standard library, such as `Base.Generator` and
 `Iterators.Enumerate`.
 """
-@inline generic_getindex(itr, n) = getindex(itr, n)
-@inline generic_getindex(itr::Base.Generator, n) =
+Base.@propagate_inbounds generic_getindex(itr, n) = getindex(itr, n)
+Base.@propagate_inbounds generic_getindex(itr::Base.Generator, n) =
     itr.f(generic_getindex(itr.iter, n))
-@inline generic_getindex(itr::Iterators.Reverse, n) =
+Base.@propagate_inbounds generic_getindex(itr::Iterators.Reverse, n) =
     generic_getindex(itr.itr, length(itr.itr) - n + 1)
-@inline generic_getindex(itr::Iterators.Enumerate, n) =
+Base.@propagate_inbounds generic_getindex(itr::Iterators.Enumerate, n) =
     (n, generic_getindex(itr.itr, n))
-@inline generic_getindex(itr::Iterators.Zip, n) =
-    unrolled_map(Base.Fix2(generic_getindex, n), itr.is)
+Base.@propagate_inbounds generic_getindex(itr::Iterators.Zip, n) = unrolled_map(
+    itr_k -> (Base.@_propagate_inbounds_meta; generic_getindex(itr_k, n)),
+    itr.is,
+)
 
 @inline eltype_for_promotion(itr::Union{Tuple, NamedTuple}) =
     eltype(typeof(itr))
@@ -233,6 +235,6 @@ An empty output of type `output_type`. Defaults to applying the
 @inline inferred_empty(itr) = empty_output(inferred_output_type(itr))
 
 # This makes lazy iterators non-lazy, and it is a no-op for non-lazy iterators.
-@inline non_lazy_iterator(itr::Union{Tuple, NamedTuple}) = itr
-@inline non_lazy_iterator(itr) =
+Base.@propagate_inbounds non_lazy_iterator(itr::Union{Tuple, NamedTuple}) = itr
+Base.@propagate_inbounds non_lazy_iterator(itr) =
     unrolled_map_into(inferred_output_type(itr), identity, itr)
