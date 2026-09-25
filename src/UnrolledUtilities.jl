@@ -1,3 +1,37 @@
+"""
+    UnrolledUtilities
+
+Compile-time loop unrolling for statically sized iterators, such as `Tuple`s,
+`NamedTuple`s, `SVector`s, [`StaticOneTo`](@ref)s, and
+[`StaticBitVector`](@ref)s. The exported functions are unrolled analogues of
+functions from `Base` and `Base.Iterators` that stay type-stable and free of
+allocations for long and heterogeneous iterators, which lets them run in GPU
+kernels and constant-fold results that are used as type parameters.
+
+- Modification and slicing: [`unrolled_push`](@ref), [`unrolled_append`](@ref),
+  [`unrolled_prepend`](@ref), [`unrolled_take`](@ref), [`unrolled_drop`](@ref),
+  [`unrolled_setindex`](@ref), and [`unrolled_insert`](@ref).
+- Mapping, iteration, and reductions: [`unrolled_map`](@ref),
+  [`unrolled_foreach`](@ref), [`unrolled_any`](@ref), [`unrolled_all`](@ref),
+  [`unrolled_reduce`](@ref), [`unrolled_mapreduce`](@ref),
+  [`unrolled_accumulate`](@ref), [`unrolled_sum`](@ref),
+  [`unrolled_prod`](@ref), [`unrolled_cumsum`](@ref),
+  [`unrolled_cumprod`](@ref), and [`unrolled_count`](@ref).
+- Extrema, searching, and indexing: [`unrolled_maximum`](@ref),
+  [`unrolled_minimum`](@ref), [`unrolled_extrema`](@ref),
+  [`unrolled_findmax`](@ref), [`unrolled_findmin`](@ref),
+  [`unrolled_argmax`](@ref), [`unrolled_argmin`](@ref),
+  [`unrolled_findfirst`](@ref), [`unrolled_findlast`](@ref),
+  [`unrolled_argfirst`](@ref), [`unrolled_arglast`](@ref), and
+  [`unrolled_applyat`](@ref).
+- Membership, uniqueness, and filtering: [`unrolled_in`](@ref),
+  [`unrolled_unique`](@ref), [`unrolled_allunique`](@ref),
+  [`unrolled_allequal`](@ref), [`unrolled_filter`](@ref), and
+  [`unrolled_split`](@ref).
+- Combinators and partitioning: [`unrolled_flatten`](@ref),
+  [`unrolled_flatmap`](@ref), [`unrolled_product`](@ref),
+  [`unrolled_cycle`](@ref), and [`unrolled_partition`](@ref).
+"""
 module UnrolledUtilities
 
 export StaticSequence,
@@ -55,8 +89,9 @@ include("unrollable_iterator_interface.jl")
 # Analogue of the non-public Base._InitialValue for reduction and accumulation.
 struct NoInit end
 
-@inline empty_reduction_value(::NoInit) =
-    error("unrolled_reduce requires an init value for empty iterators")
+@inline empty_reduction_value(::NoInit) = throw(
+    ArgumentError("reducing over an empty iterator requires an init value"),
+)
 @inline empty_reduction_value(init) = init
 
 Base.@propagate_inbounds first_reduction_value(op, itr, ::NoInit) =
@@ -87,9 +122,15 @@ Base.@propagate_inbounds first_mapreduce_value(f, op, itr, init) =
 """
     StaticSequence{N}
 
-Abstract type that can represent any iterable of constant length `N`. Subtypes
-include the low-storage data structures `StaticOneTo` and `StaticBitVector`,
-which have optimized methods for certain unrolled functions.
+Abstract supertype for indexable iterators with a compile-time constant length
+`N`.
+
+Subtypes:
+- [`StaticOneTo`](@ref): the integers from `1` to `N`, without storage.
+- [`StaticBitVector`](@ref): `N` `Bool`s packed into unsigned integers.
+
+Subtypes implement [`generic_getindex`](@ref)`(itr, n)` for `1 ≤ n ≤ N` and
+inherit `length`, `firstindex`, `lastindex`, `getindex`, and `iterate`.
 """
 abstract type StaticSequence{N} end
 
@@ -123,6 +164,21 @@ include("StaticBitVector.jl")
             n <= length(itr) ? generic_getindex(itr, n) : item
         end,
     )
+
+"""
+    unrolled_push(itr, items...)
+
+Return a container with `items` appended to `itr`, as a non-mutating analogue
+of `push!`.
+
+# Examples
+```julia
+unrolled_push((1, 2), 3, 4)      # (1, 2, 3, 4)
+unrolled_push((a = 1, b = 2), 3) # (1, 2, 3)
+```
+
+See also [`unrolled_append`](@ref), [`unrolled_insert`](@ref).
+"""
 @inline unrolled_push(itr, item) =
     unrolled_push_into(inferred_output_type(itr, item), itr, item)
 @inline unrolled_push(itr, items...) =
@@ -138,6 +194,20 @@ include("StaticBitVector.jl")
             generic_getindex(itr2, n - length(itr1))
         end,
     )
+
+"""
+    unrolled_append(itr, itrs...)
+
+Return a container with the items of `itr` followed by the items of `itrs`, as
+a non-mutating analogue of `append!`.
+
+# Examples
+```julia
+unrolled_append((1, 2), (3, 4), (5,)) # (1, 2, 3, 4, 5)
+```
+
+See also [`unrolled_prepend`](@ref), [`unrolled_flatten`](@ref).
+"""
 @inline unrolled_append(itr1::Tuple, itr2::Tuple) =
     unrolled_append_into(Tuple, itr1, itr2)
 @inline unrolled_append(itr1, itr2) =
@@ -145,6 +215,19 @@ include("StaticBitVector.jl")
 @inline unrolled_append(itr, itrs...) =
     unrolled_reduce(unrolled_append, itrs, itr)
 
+"""
+    unrolled_prepend(itr, itrs...)
+
+Return `unrolled_append(itrs..., itr)`, as a non-mutating analogue of
+`prepend!`.
+
+# Examples
+```julia
+unrolled_prepend((3, 4), (1, 2)) # (1, 2, 3, 4)
+```
+
+See also [`unrolled_append`](@ref).
+"""
 @inline unrolled_prepend(itr, itrs...) = unrolled_append(itrs..., itr)
 
 @inline unrolled_take_into(output_type, itr, ::Val{N}) where {N} =
@@ -159,6 +242,24 @@ include("StaticBitVector.jl")
 ) where {names, N} = NamedTuple{unrolled_take(names, Val(N))}(
     unrolled_take_into(Tuple, itr, Val(N)),
 )
+
+"""
+    unrolled_take(itr, ::Val{N})
+
+Return a container with the first `N` items of `itr`, as an analogue of
+`itr[1:N]` with a compile-time constant `N`. Throws a `BoundsError` unless
+`0 ≤ N ≤ length(itr)`.
+
+For a [`StaticOneTo`](@ref), the result is `StaticOneTo(N)`.
+
+# Examples
+```julia
+unrolled_take((a = 10, b = 20, c = 30), Val(2)) # (a = 10, b = 20)
+unrolled_take(StaticOneTo(5), Val(3))           # StaticOneTo{3}()
+```
+
+See also [`unrolled_drop`](@ref), [`unrolled_partition`](@ref).
+"""
 @inline unrolled_take(itr, val_N) =
     unrolled_take_into(inferred_output_type(itr), itr, val_N)
 
@@ -177,6 +278,22 @@ include("StaticBitVector.jl")
 ) where {names, N} = NamedTuple{unrolled_drop(names, Val(N))}(
     unrolled_drop_into(Tuple, itr, Val(N)),
 )
+
+"""
+    unrolled_drop(itr, ::Val{N})
+
+Return a container with all but the first `N` items of `itr`, as an analogue of
+`itr[(N + 1):end]` with a compile-time constant `N`. Throws a `BoundsError`
+unless `0 ≤ N ≤ length(itr)`.
+
+# Examples
+```julia
+unrolled_drop((a = 10, b = 20, c = 30), Val(1)) # (b = 20, c = 30)
+unrolled_drop((1, 2, 3, 4), Val(2))             # (3, 4)
+```
+
+See also [`unrolled_take`](@ref), [`unrolled_partition`](@ref).
+"""
 @inline unrolled_drop(itr, val_N) =
     unrolled_drop_into(inferred_output_type(itr), itr, val_N)
 
@@ -188,6 +305,21 @@ include("StaticBitVector.jl")
             n == N ? item : generic_getindex(itr, n)
         end,
     )
+
+"""
+    unrolled_setindex(itr, item, ::Val{N})
+
+Return a copy of `itr` whose `N`-th item is `item`, as an analogue of
+`Base.setindex` with a compile-time constant `N`. Throws a `BoundsError` unless
+`1 ≤ N ≤ length(itr)`.
+
+# Examples
+```julia
+unrolled_setindex((a = 1, b = 2, c = 3), 10, Val(2)) # (a = 1, b = 10, c = 3)
+```
+
+See also [`unrolled_insert`](@ref).
+"""
 @inline unrolled_setindex(itr, item, val_N) =
     unrolled_setindex_into(inferred_output_type(itr, item), itr, item, val_N)
 
@@ -199,6 +331,21 @@ include("StaticBitVector.jl")
             n == N ? item : generic_getindex(itr, n < N ? n : n - 1)
         end,
     )
+
+"""
+    unrolled_insert(itr, item, ::Val{N})
+
+Return a container with `item` inserted into `itr` at index `N`, as a
+non-mutating analogue of `insert!` with a compile-time constant `N`. Throws a
+`BoundsError` unless `1 ≤ N ≤ length(itr) + 1`.
+
+# Examples
+```julia
+unrolled_insert((10, 20, 30), 99, Val(2)) # (10, 99, 20, 30)
+```
+
+See also [`unrolled_setindex`](@ref), [`unrolled_push`](@ref).
+"""
 @inline unrolled_insert(itr, item, val_N) =
     unrolled_insert_into(inferred_output_type(itr, item), itr, item, val_N)
 
@@ -215,6 +362,22 @@ Base.@propagate_inbounds unrolled_map_into_tuple(f::F, itr) where {F} =
     _unrolled_map(Val(length(itr)), f, itr)
 Base.@propagate_inbounds unrolled_map_into(output_type, f::F, itr) where {F} =
     constructor_from_tuple(output_type)(unrolled_map_into_tuple(f, itr))
+
+"""
+    unrolled_map(f, itrs...)
+
+Apply `f` to corresponding items of `itrs`, as an analogue of `map`. The result
+has `length(zip(itrs...))` items.
+
+# Examples
+```julia
+unrolled_map(x -> 2x, (a = 1, b = 2))    # (a = 2, b = 4)
+unrolled_map(+, (1, 2, 3), (10, 20, 30)) # (11, 22, 33)
+```
+
+See also [`unrolled_foreach`](@ref), [`unrolled_mapreduce`](@ref),
+[`unrolled_flatmap`](@ref).
+"""
 Base.@propagate_inbounds unrolled_map(f::F, itr) where {F} =
     unrolled_map_into(inferred_output_type(Iterators.map(f, itr)), f, itr)
 Base.@propagate_inbounds unrolled_map(f::F, itrs...) where {F} =
@@ -306,19 +469,85 @@ Base.@propagate_inbounds unrolled_map(f::F, r::StaticOneTo) where {F} =
     end
 end
 
+"""
+    unrolled_any(itr)
+    unrolled_any(f, itr)
+
+Return whether any item of `itr` (or any value of `f(item)`) is `true`, as an
+analogue of `any`. Returns `false` for an empty `itr`, and stops evaluating at
+the first `true`.
+
+# Examples
+```julia
+unrolled_any((false, true, false)) # true
+unrolled_any(iseven, (1, 3, 4, 7)) # true
+```
+
+See also [`unrolled_all`](@ref), [`unrolled_in`](@ref),
+[`unrolled_count`](@ref).
+"""
 Base.@propagate_inbounds unrolled_any(itr) = unrolled_any(identity, itr)
 Base.@propagate_inbounds unrolled_any(f::F, itr) where {F} =
     _unrolled_any(Val(length(itr)), f, itr)
 
+"""
+    unrolled_all(itr)
+    unrolled_all(f, itr)
+
+Return whether every item of `itr` (or every value of `f(item)`) is `true`, as
+an analogue of `all`. Returns `true` for an empty `itr`, and stops evaluating
+at the first `false`.
+
+# Examples
+```julia
+unrolled_all((true, true, false)) # false
+unrolled_all(isodd, (1, 3, 5))    # true
+```
+
+See also [`unrolled_any`](@ref), [`unrolled_allequal`](@ref),
+[`unrolled_allunique`](@ref).
+"""
 Base.@propagate_inbounds unrolled_all(itr) = unrolled_all(identity, itr)
 Base.@propagate_inbounds unrolled_all(f::F, itr) where {F} =
     _unrolled_all(Val(length(itr)), f, itr)
 
+"""
+    unrolled_foreach(f, itrs...)
+
+Call `f` on corresponding items of `itrs` for its side effects and return
+`nothing`, as an analogue of `foreach`. Stops after `length(zip(itrs...))`
+items.
+
+# Examples
+```julia
+acc = Ref(0)
+unrolled_foreach(x -> (acc[] += x), (1, 2, 3)) # acc[] == 6
+```
+
+See also [`unrolled_map`](@ref).
+"""
 Base.@propagate_inbounds unrolled_foreach(f::F, itr) where {F} =
     _unrolled_foreach(Val(length(itr)), f, itr)
 Base.@propagate_inbounds unrolled_foreach(f, itrs...) =
     unrolled_foreach(splat(f), zip(itrs...))
 
+"""
+    unrolled_reduce(op, itr, [init])
+    unrolled_reduce(op, itr; [init])
+
+Reduce `itr` from left to right with the binary operator `op`, as an analogue of
+`foldl`. The initial value `init` can be passed positionally or as a keyword
+argument; without it, an empty `itr` throws an error.
+
+# Examples
+```julia
+unrolled_reduce(+, (1, 2, 3, 4))         # 10
+unrolled_reduce(+, (), 0)                # 0
+unrolled_reduce(+, (1, 2, 3); init = 10) # 16
+```
+
+See also [`unrolled_mapreduce`](@ref), [`unrolled_accumulate`](@ref).
+"""
 Base.@propagate_inbounds unrolled_reduce(op::O, itr, init) where {O} =
     _unrolled_reduce(Val(length(itr)), op, itr, init)
 Base.@propagate_inbounds unrolled_reduce(
@@ -327,6 +556,22 @@ Base.@propagate_inbounds unrolled_reduce(
     init = NoInit(),
 ) where {O} = unrolled_reduce(op, itr, init)
 
+"""
+    unrolled_mapreduce(f, op, itrs...; [init])
+
+Apply `f` to corresponding items of `itrs` and reduce the results from left to
+right with `op`, as an analogue of `mapreduce`. Without `init`, an empty
+`zip(itrs...)` throws an error.
+
+# Examples
+```julia
+unrolled_mapreduce(abs2, +, (1, 2, 3))               # 14
+unrolled_mapreduce(*, +, (1, 2), (10, 20); init = 5) # 55
+```
+
+See also [`unrolled_reduce`](@ref), [`unrolled_map`](@ref),
+[`unrolled_sum`](@ref).
+"""
 Base.@propagate_inbounds unrolled_mapreduce(
     f::F,
     op::O,
@@ -359,6 +604,24 @@ Base.@propagate_inbounds unrolled_accumulate_into(
 ) where {O} = constructor_from_tuple(output_type)(
     unrolled_accumulate_into_tuple(op, itr, init),
 )
+
+"""
+    unrolled_accumulate(op, itr, [init])
+    unrolled_accumulate(op, itr; [init])
+
+Return the running reduction of `itr` from left to right with `op`, as an
+analogue of `accumulate`. The initial value `init` can be passed positionally or
+as a keyword argument.
+
+# Examples
+```julia
+unrolled_accumulate(+, (a = 1, b = 2, c = 3)) # (a = 1, b = 3, c = 6)
+unrolled_accumulate(+, (1, 2, 3), 10)         # (11, 13, 16)
+```
+
+See also [`unrolled_cumsum`](@ref), [`unrolled_cumprod`](@ref),
+[`unrolled_reduce`](@ref).
+"""
 Base.@propagate_inbounds unrolled_accumulate(op::O, itr, init) where {O} =
     unrolled_accumulate_into(
         unrolled_accumulate_output_type(op, itr, init),
@@ -393,6 +656,24 @@ Base.@propagate_inbounds unrolled_ifelse(
 ## Unrolled functions without any analogues in Base
 ##
 
+"""
+    unrolled_applyat(f, n, itrs...)
+
+Return `f(itr1[n], itr2[n], ...)` for a run-time index `n`, with a separate
+branch for every index in `1:length(zip(itrs...))`. Throws a `BoundsError` when
+`n` is outside that range.
+
+Each branch is compiled for the types of the items at its index, so the result
+is type-stable for heterogeneous `itrs` when `f` returns the same type for
+every index. The branches compile to a `switch` instruction.
+
+# Examples
+```julia
+unrolled_applyat(Float64, 2, (1, 2.0, 3.0f0)) # 2.0
+```
+
+See also [`unrolled_argfirst`](@ref), [`unrolled_findfirst`](@ref).
+"""
 Base.@propagate_inbounds unrolled_applyat(f::F, n, itr) where {F} =
     unrolled_ifelse(
         ==(n),
@@ -410,6 +691,20 @@ Base.@propagate_inbounds unrolled_applyat(f::F, n, itrs...) where {F} =
 
 # Using === instead of == or isequal improves type stability for singletons.
 
+"""
+    unrolled_in(item, itr)
+
+Return whether `item` is `===` to an item of `itr`, as an analogue of `in`.
+Comparing with `===` keeps the result inferrable for singletons.
+
+# Examples
+```julia
+unrolled_in(:b, (:a, :b, :c)) # true
+unrolled_in(2, (1, 2.0, 3))   # false, since 2 !== 2.0
+```
+
+See also [`unrolled_any`](@ref).
+"""
 Base.@propagate_inbounds unrolled_in(item, itr) =
     unrolled_any(Base.Fix1(===, item), itr)
 
@@ -435,6 +730,27 @@ Base.@propagate_inbounds function is_first_occurrence(values, n)
     end
 end
 
+"""
+    unrolled_unique(itr)
+    unrolled_unique(f, itr)
+
+Return a container with the items of `itr` whose values of `f(item)` (or the
+items themselves) do not appear earlier in `itr`, compared with `===`, as an
+analogue of `unique`. A singleton `f` is called repeatedly and constant folded;
+any other callable is called once per item.
+
+The number of items in the result depends on the values of `f`, so the result
+is only inferrable when those values are known during compilation, as they are
+for singleton items and for constant-folded `f`.
+
+# Examples
+```julia
+unrolled_unique((:a, :b, :a, :c))       # (:a, :b, :c)
+unrolled_unique(abs, (1, -1, 2, -2, 3)) # (1, 2, 3)
+```
+
+See also [`unrolled_allunique`](@ref), [`unrolled_filter`](@ref).
+"""
 Base.@propagate_inbounds unrolled_unique(itr) = unrolled_unique(identity, itr)
 Base.@propagate_inbounds unrolled_unique(f::F, itr) where {F} =
     unrolled_unique_into(inferred_output_type(itr), f, itr)
@@ -450,6 +766,21 @@ Base.@propagate_inbounds function unrolled_unique_into(
     end
 end
 
+"""
+    unrolled_allunique(itr)
+    unrolled_allunique(f, itr)
+
+Return whether the values of `f(item)` (or the items themselves) are pairwise
+distinct under `===`, as an analogue of `allunique`.
+
+# Examples
+```julia
+unrolled_allunique((:a, :b, :c))    # true
+unrolled_allunique(abs, (1, -1, 2)) # false
+```
+
+See also [`unrolled_unique`](@ref), [`unrolled_allequal`](@ref).
+"""
 Base.@propagate_inbounds unrolled_allunique(itr) =
     unrolled_allunique(identity, itr)
 Base.@propagate_inbounds function unrolled_allunique(f::F, itr) where {F}
@@ -460,6 +791,21 @@ Base.@propagate_inbounds function unrolled_allunique(f::F, itr) where {F}
     end
 end
 
+"""
+    unrolled_allequal(itr)
+    unrolled_allequal(f, itr)
+
+Return whether all values of `f(item)` (or all items) are `===` to the first
+one, as an analogue of `allequal`. Returns `true` when `length(itr) ≤ 1`.
+
+# Examples
+```julia
+unrolled_allequal((2, 2, 2))        # true
+unrolled_allequal(abs, (-3, 3, -3)) # true
+```
+
+See also [`unrolled_allunique`](@ref).
+"""
 Base.@propagate_inbounds unrolled_allequal(itr) =
     unrolled_allequal(identity, itr)
 Base.@propagate_inbounds function unrolled_allequal(f::F, itr) where {F}
@@ -475,40 +821,167 @@ end
 ## Unrolled analogues of functions from base/reduce.jl and base/accumulate.jl
 ##
 
+"""
+    unrolled_sum(itr; [init])
+    unrolled_sum(f, itr; [init])
+
+Return the sum of the items of `itr` (or of the values of `f(item)`), as an
+analogue of `sum`. The sum starts from `init` when it is given; an empty `itr`
+sums to `init`, or to `0` without it.
+
+# Examples
+```julia
+unrolled_sum((1, 2, 3, 4))              # 10
+unrolled_sum(abs2, (1, 2, 3); init = 5) # 19
+```
+
+See also [`unrolled_prod`](@ref), [`unrolled_cumsum`](@ref),
+[`unrolled_count`](@ref).
+"""
 Base.@propagate_inbounds unrolled_sum(itr; init = NoInit()) =
     unrolled_sum(identity, itr; init)
 Base.@propagate_inbounds unrolled_sum(f::F, itr; init = NoInit()) where {F} =
     isempty(itr) ? (init isa NoInit ? 0 : init) :
     unrolled_mapreduce(f, +, itr; init)
 
+"""
+    unrolled_prod(itr; [init])
+    unrolled_prod(f, itr; [init])
+
+Return the product of the items of `itr` (or of the values of `f(item)`), as an
+analogue of `prod`. The product starts from `init` when it is given; an empty
+`itr` multiplies to `init`, or to `1` without it.
+
+# Examples
+```julia
+unrolled_prod((2, 3, 4))              # 24
+unrolled_prod(abs, (-2, 3); init = 2) # 12
+```
+
+See also [`unrolled_sum`](@ref), [`unrolled_cumprod`](@ref).
+"""
 Base.@propagate_inbounds unrolled_prod(itr; init = NoInit()) =
     unrolled_prod(identity, itr; init)
 Base.@propagate_inbounds unrolled_prod(f::F, itr; init = NoInit()) where {F} =
     isempty(itr) ? (init isa NoInit ? 1 : init) :
     unrolled_mapreduce(f, *, itr; init)
 
+"""
+    unrolled_cumsum(itr)
+    unrolled_cumsum(f, itr)
+
+Return the running sums of the items of `itr` (or of the values of `f(item)`),
+as an analogue of `cumsum`.
+
+# Examples
+```julia
+unrolled_cumsum((a = 1, b = 2, c = 3)) # (a = 1, b = 3, c = 6)
+unrolled_cumsum(abs, (-1, -2, 3))      # (1, 3, 6)
+```
+
+See also [`unrolled_cumprod`](@ref), [`unrolled_accumulate`](@ref).
+"""
 Base.@propagate_inbounds unrolled_cumsum(itr) = unrolled_cumsum(identity, itr)
 Base.@propagate_inbounds unrolled_cumsum(f::F, itr) where {F} =
     unrolled_accumulate(+, unrolled_map(f, itr))
 
+"""
+    unrolled_cumprod(itr)
+    unrolled_cumprod(f, itr)
+
+Return the running products of the items of `itr` (or of the values of
+`f(item)`), as an analogue of `cumprod`.
+
+# Examples
+```julia
+unrolled_cumprod((2, 3, 4))        # (2, 6, 24)
+unrolled_cumprod(abs, (-2, -3, 4)) # (2, 6, 24)
+```
+
+See also [`unrolled_cumsum`](@ref), [`unrolled_accumulate`](@ref).
+"""
 Base.@propagate_inbounds unrolled_cumprod(itr) = unrolled_cumprod(identity, itr)
 Base.@propagate_inbounds unrolled_cumprod(f::F, itr) where {F} =
     unrolled_accumulate(*, unrolled_map(f, itr))
 
+"""
+    unrolled_count(itr)
+    unrolled_count(f, itr)
+
+Return the number of items of `itr` for which `f(item)` (or the item itself) is
+`true`, as an analogue of `count`. The result is always an `Int`.
+
+# Examples
+```julia
+unrolled_count((true,))              # 1
+unrolled_count(iseven, (1, 2, 4, 5)) # 2
+```
+
+See also [`unrolled_sum`](@ref), [`unrolled_any`](@ref).
+"""
 Base.@propagate_inbounds unrolled_count(itr) = unrolled_count(identity, itr)
 Base.@propagate_inbounds unrolled_count(f::F, itr) where {F} =
     unrolled_sum(Int ⋅ Bool ⋅ f, itr)
 
+"""
+    unrolled_maximum(itr)
+    unrolled_maximum(f, itr)
+
+Return the largest item of `itr` (or the largest value of `f(item)`) under
+`max`, as an analogue of `maximum`. An empty `itr` throws an error.
+
+# Examples
+```julia
+unrolled_maximum((3, 1, 4, 2))     # 4
+unrolled_maximum(abs, (-5, 2, -3)) # 5
+```
+
+See also [`unrolled_minimum`](@ref), [`unrolled_extrema`](@ref),
+[`unrolled_findmax`](@ref).
+"""
 Base.@propagate_inbounds unrolled_maximum(itr) = unrolled_maximum(identity, itr)
 Base.@propagate_inbounds unrolled_maximum(f::F, itr) where {F} =
     unrolled_mapreduce(f, max, itr)
 
+"""
+    unrolled_minimum(itr)
+    unrolled_minimum(f, itr)
+
+Return the smallest item of `itr` (or the smallest value of `f(item)`) under
+`min`, as an analogue of `minimum`. An empty `itr` throws an error.
+
+# Examples
+```julia
+unrolled_minimum((3, 1, 4, 2))     # 1
+unrolled_minimum(abs, (-5, 2, -3)) # 2
+```
+
+See also [`unrolled_maximum`](@ref), [`unrolled_extrema`](@ref),
+[`unrolled_findmin`](@ref).
+"""
 Base.@propagate_inbounds unrolled_minimum(itr) = unrolled_minimum(identity, itr)
 Base.@propagate_inbounds unrolled_minimum(f::F, itr) where {F} =
     unrolled_mapreduce(f, min, itr)
 
 @inline extrema_reduction_operator((f_min1, f_max1), (f_min2, f_max2)) =
     (min(f_min1, f_min2), max(f_max1, f_max2))
+
+"""
+    unrolled_extrema(itr)
+    unrolled_extrema(f, itr)
+
+Return the `Tuple` `(minimum, maximum)` of the items of `itr` (or of the values
+of `f(item)`), as an analogue of `extrema`. Calls `f` once per item, and throws
+an error for an empty `itr`.
+
+# Examples
+```julia
+unrolled_extrema((3, 1, 4, 2))     # (1, 4)
+unrolled_extrema(abs, (-5, 2, -3)) # (2, 5)
+```
+
+See also [`unrolled_minimum`](@ref), [`unrolled_maximum`](@ref).
+"""
 Base.@propagate_inbounds unrolled_extrema(itr) = unrolled_extrema(identity, itr)
 Base.@propagate_inbounds unrolled_extrema(f::F, itr) where {F} =
     unrolled_mapreduce(extrema_reduction_operator, itr) do item
@@ -527,6 +1000,26 @@ Base.@propagate_inbounds unrolled_extrema(f::F, itr) where {F} =
 
 @inline findmax_reduction_operator((f_value1, value1), (f_value2, value2)) =
     isless(f_value1, f_value2) ? (f_value2, value2) : (f_value1, value1)
+
+"""
+    unrolled_findmax(itr)
+    unrolled_findmax(f, itr)
+
+Return the `Tuple` `(value, index)` of the largest value of `f(item)` (or the
+largest item) and the index of its first occurrence in `itr`, as an analogue of
+`findmax`. Values are ordered with `isless`, so `NaN` and `missing` are
+selected over all other values, and `missing` over `NaN`, as in `Base`. An
+empty `itr` throws an error.
+
+# Examples
+```julia
+unrolled_findmax((10, 30, 20))     # (30, 2)
+unrolled_findmax(abs, (-4, 2, -4)) # (4, 1)
+```
+
+See also [`unrolled_findmin`](@ref), [`unrolled_argmax`](@ref),
+[`unrolled_maximum`](@ref).
+"""
 Base.@propagate_inbounds unrolled_findmax(itr) = unrolled_findmax(identity, itr)
 Base.@propagate_inbounds unrolled_findmax(f::F, itr) where {F} =
     unrolled_mapreduce(findmax_reduction_operator, enumerate(itr)) do (n, item)
@@ -536,6 +1029,25 @@ Base.@propagate_inbounds unrolled_findmax(f::F, itr) where {F} =
 
 @inline findmin_reduction_operator((f_value1, value1), (f_value2, value2)) =
     isgreater(f_value1, f_value2) ? (f_value2, value2) : (f_value1, value1)
+
+"""
+    unrolled_findmin(itr)
+    unrolled_findmin(f, itr)
+
+Return the `Tuple` `(value, index)` of the smallest value of `f(item)` (or the
+smallest item) and the index of its first occurrence in `itr`, as an analogue
+of `findmin`. As in `Base`, `NaN` and `missing` are selected over all other
+values, and `missing` over `NaN`. An empty `itr` throws an error.
+
+# Examples
+```julia
+unrolled_findmin((30, 10, 20))    # (10, 2)
+unrolled_findmin(abs, (4, -2, 2)) # (2, 2)
+```
+
+See also [`unrolled_findmax`](@ref), [`unrolled_argmin`](@ref),
+[`unrolled_minimum`](@ref).
+"""
 Base.@propagate_inbounds unrolled_findmin(itr) = unrolled_findmin(identity, itr)
 Base.@propagate_inbounds unrolled_findmin(f::F, itr) where {F} =
     unrolled_mapreduce(findmin_reduction_operator, enumerate(itr)) do (n, item)
@@ -543,6 +1055,22 @@ Base.@propagate_inbounds unrolled_findmin(f::F, itr) where {F} =
         (f(item), n)
     end
 
+"""
+    unrolled_argmax(itr)
+    unrolled_argmax(f, itr)
+
+Return the index of the largest item of `itr`, or the item with the largest
+value of `f(item)`, as an analogue of `argmax`. Values are ordered as in
+[`unrolled_findmax`](@ref), and an empty `itr` throws an error.
+
+# Examples
+```julia
+unrolled_argmax((10, 30, 20))    # 2
+unrolled_argmax(abs, (1, -5, 3)) # -5
+```
+
+See also [`unrolled_argmin`](@ref), [`unrolled_findmax`](@ref).
+"""
 Base.@propagate_inbounds unrolled_argmax(itr) = unrolled_findmax(itr)[2]
 Base.@propagate_inbounds unrolled_argmax(f::F, itr) where {F} =
     unrolled_mapreduce(findmax_reduction_operator, itr) do item
@@ -550,6 +1078,22 @@ Base.@propagate_inbounds unrolled_argmax(f::F, itr) where {F} =
         (f(item), item)
     end[2]
 
+"""
+    unrolled_argmin(itr)
+    unrolled_argmin(f, itr)
+
+Return the index of the smallest item of `itr`, or the item with the smallest
+value of `f(item)`, as an analogue of `argmin`. Values are ordered as in
+[`unrolled_findmin`](@ref), and an empty `itr` throws an error.
+
+# Examples
+```julia
+unrolled_argmin((30, 10, 20))     # 2
+unrolled_argmin(abs, (-5, -2, 3)) # -2
+```
+
+See also [`unrolled_argmax`](@ref), [`unrolled_findmin`](@ref).
+"""
 Base.@propagate_inbounds unrolled_argmin(itr) = unrolled_findmin(itr)[2]
 Base.@propagate_inbounds unrolled_argmin(f::F, itr) where {F} =
     unrolled_mapreduce(findmin_reduction_operator, itr) do item
@@ -561,11 +1105,42 @@ Base.@propagate_inbounds unrolled_argmin(f::F, itr) where {F} =
 ## Unrolled analogues of functions from base/arrays.jl
 ##
 
+"""
+    unrolled_findfirst(itr)
+    unrolled_findfirst(f, itr)
+
+Return the index of the first item of `itr` for which `f(item)` (or the item
+itself) is `true`, or `nothing` if there is none, as an analogue of
+`findfirst`.
+
+# Examples
+```julia
+unrolled_findfirst((false, true, true)) # 2
+unrolled_findfirst(iseven, (1, 3, 5))   # nothing
+```
+
+See also [`unrolled_findlast`](@ref), [`unrolled_argfirst`](@ref).
+"""
 Base.@propagate_inbounds unrolled_findfirst(itr) =
     unrolled_findfirst(identity, itr)
 Base.@propagate_inbounds unrolled_findfirst(f::F, itr) where {F} =
     unrolled_ifelse(f, identity, Returns(nothing), itr, static_range(itr))
 
+"""
+    unrolled_findlast(itr)
+    unrolled_findlast(f, itr)
+
+Return the index of the last item of `itr` for which `f(item)` (or the item
+itself) is `true`, or `nothing` if there is none, as an analogue of `findlast`.
+
+# Examples
+```julia
+unrolled_findlast((false, true, true)) # 3
+unrolled_findlast(iseven, (2, 4, 5))   # 2
+```
+
+See also [`unrolled_findfirst`](@ref), [`unrolled_arglast`](@ref).
+"""
 Base.@propagate_inbounds unrolled_findlast(itr) =
     unrolled_findlast(identity, itr)
 Base.@propagate_inbounds unrolled_findlast(f::F, itr) where {F} =
@@ -577,6 +1152,23 @@ Base.@propagate_inbounds unrolled_findlast(f::F, itr) where {F} =
         Iterators.reverse(static_range(itr)),
     )
 
+"""
+    unrolled_argfirst(f, itr)
+
+Return the first item of `itr` for which `f(item)` is `true`, and throw an
+error if there is none.
+
+Each item is returned from its own branch, which keeps the result type-stable
+for heterogeneous `itr` when the values of `f` are known during compilation.
+
+# Examples
+```julia
+unrolled_argfirst(x -> x isa Float64, (1, 2.5, 3)) # 2.5
+```
+
+See also [`unrolled_arglast`](@ref), [`unrolled_findfirst`](@ref),
+[`unrolled_applyat`](@ref).
+"""
 Base.@propagate_inbounds unrolled_argfirst(f::F, itr) where {F} =
     unrolled_ifelse(
         f,
@@ -585,6 +1177,19 @@ Base.@propagate_inbounds unrolled_argfirst(f::F, itr) where {F} =
         itr,
     )
 
+"""
+    unrolled_arglast(f, itr)
+
+Return the last item of `itr` for which `f(item)` is `true`, and throw an error
+if there is none. Equivalent to `unrolled_argfirst(f, Iterators.reverse(itr))`.
+
+# Examples
+```julia
+unrolled_arglast(iseven, (2, 4, 5)) # 4
+```
+
+See also [`unrolled_argfirst`](@ref), [`unrolled_findlast`](@ref).
+"""
 Base.@propagate_inbounds unrolled_arglast(f::F, itr) where {F} =
     unrolled_argfirst(f, Iterators.reverse(itr))
 
@@ -622,6 +1227,23 @@ Base.@propagate_inbounds unrolled_flatmap_into(
     unrolled_flatten(unrolled_map_into_tuple(f, itr)),
 )
 
+"""
+    unrolled_filter(f, itr)
+
+Return a container with the items of `itr` for which `f(item)` is `true`, as an
+analogue of `filter`.
+
+The number of items in the result depends on the values of `f`, so the result
+is only inferrable when those values are known during compilation. This is the
+case for predicates on item types, such as `x -> x isa Int`.
+
+# Examples
+```julia
+unrolled_filter(x -> x isa Int, (1, 2.0, 3, 4.0)) # (1, 3)
+```
+
+See also [`unrolled_split`](@ref), [`unrolled_unique`](@ref).
+"""
 Base.@propagate_inbounds unrolled_filter(f::F, itr) where {F} =
     unrolled_filter_into(inferred_output_type(itr), f, itr)
 Base.@propagate_inbounds unrolled_filter_into(
@@ -637,6 +1259,20 @@ Base.@propagate_inbounds unrolled_filter_into(
 # The values of f are computed only once per item, and they are stored in a
 # Tuple of (value, item) pairs so that both parts of the split can read them.
 # This also avoids negating f, which is only possible when f is a Function.
+"""
+    unrolled_split(f, itr)
+
+Return the `Tuple` `(unrolled_filter(f, itr), unrolled_filter(!f, itr))`,
+calling `f` once per item. The result is inferrable under the same conditions
+as for [`unrolled_filter`](@ref).
+
+# Examples
+```julia
+unrolled_split(x -> x isa Int, (1, 2.0, 3, 4.0)) # ((1, 3), (2.0, 4.0))
+```
+
+See also [`unrolled_filter`](@ref), [`unrolled_partition`](@ref).
+"""
 Base.@propagate_inbounds function unrolled_split(f::F, itr) where {F}
     pairs = unrolled_map_into_tuple(
         item -> (Base.@_propagate_inbounds_meta; (f(item), item)),
@@ -669,6 +1305,20 @@ end
     return $(_flatten_tree_expr(1, N))
 end
 
+"""
+    unrolled_flatten(itr)
+
+Return a container with the items of the iterators in `itr`, as an analogue of
+`Iterators.flatten`. The container type is promoted across the iterators in
+`itr`, as in [`unrolled_append`](@ref).
+
+# Examples
+```julia
+unrolled_flatten(((1, 2), (), (3, 4, 5))) # (1, 2, 3, 4, 5)
+```
+
+See also [`unrolled_flatmap`](@ref), [`unrolled_append`](@ref).
+"""
 @inline function unrolled_flatten(itr)
     if isempty(itr)
         return inferred_empty(itr)
@@ -679,6 +1329,19 @@ end
     end
 end
 
+"""
+    unrolled_flatmap(f, itrs...)
+
+Return `unrolled_flatten(unrolled_map(f, itrs...))`, as an analogue of
+`Iterators.flatmap`.
+
+# Examples
+```julia
+unrolled_flatmap(x -> (x, -x), (1, 2, 3)) # (1, -1, 2, -2, 3, -3)
+```
+
+See also [`unrolled_flatten`](@ref), [`unrolled_map`](@ref).
+"""
 Base.@propagate_inbounds unrolled_flatmap(f::F, itrs...) where {F} =
     unrolled_flatten(unrolled_map(f, itrs...))
 
@@ -687,6 +1350,20 @@ Base.@propagate_inbounds unrolled_flatmap(f::F, itrs...) where {F} =
 # is type-stable for any index. Slicing itrs inside the ntuple closures would
 # instead require constant propagation of itr_index to infer each slice's
 # length, which fails on Julia 1.11 and makes the index arithmetic dynamic.
+"""
+    unrolled_product(itrs...)
+
+Return a `Tuple` with every combination of one item from each of `itrs`, in the
+column-major order of `Iterators.product`. The container type of each
+combination is promoted across `itrs`, as in [`unrolled_append`](@ref).
+
+# Examples
+```julia
+unrolled_product((1, 2), (:a, :b)) # ((1, :a), (2, :a), (1, :b), (2, :b))
+```
+
+See also [`unrolled_cycle`](@ref).
+"""
 @inline function unrolled_product(itrs...)
     cumulative_lengths = unrolled_cumprod(length, itrs)
     return ntuple(Val(unrolled_prod(length, itrs))) do n
@@ -700,13 +1377,26 @@ Base.@propagate_inbounds unrolled_flatmap(f::F, itrs...) where {F} =
             generic_getindex(itrs[itr_index], item_index)
         end
         # Since the iterators are passed as individual arguments, the number of
-        # items is limited by the number of argument registers, so we can just
+        # items is limited by the number of argument registers, so we can
         # use constructor_from_tuple and avoid sacrificing compilation time to
         # optimize for low-storage iterators (e.g., by using unrolled_push).
         constructor_from_tuple(promoted_output_type(itrs...))(items)
     end
 end
 
+"""
+    unrolled_cycle(itr, ::Val{N})
+
+Return a container with the items of `itr` repeated `N` times, as an analogue
+of `Iterators.cycle(itr, N)`.
+
+# Examples
+```julia
+unrolled_cycle((1, 2), Val(3)) # (1, 2, 1, 2, 1, 2)
+```
+
+See also [`unrolled_flatten`](@ref), [`unrolled_partition`](@ref).
+"""
 @inline unrolled_cycle(itr, ::Val{N}) where {N} =
     unrolled_flatten(ntuple(Returns(itr), Val(N)))
 
@@ -729,6 +1419,22 @@ end
         _unrolled_slice(Tuple(nt), Val(offset), Val(len)),
     )
 
+"""
+    unrolled_partition(itr, ::Val{N})
+
+Return a `Tuple` of containers with `N` consecutive items of `itr` each, and
+fewer in the last one when `N` does not divide `length(itr)`, as an analogue of
+`Iterators.partition`.
+
+# Examples
+```julia
+unrolled_partition((1, 2, 3, 4, 5), Val(2))       # ((1, 2), (3, 4), (5,))
+unrolled_partition((a = 1, b = 2, c = 3), Val(2)) # ((a = 1, b = 2), (c = 3,))
+```
+
+See also [`unrolled_take`](@ref), [`unrolled_drop`](@ref),
+[`unrolled_split`](@ref).
+"""
 @inline unrolled_partition(itr, ::Val{N}) where {N} =
     ntuple(Val(cld(length(itr), N))) do partition_number
         @inline

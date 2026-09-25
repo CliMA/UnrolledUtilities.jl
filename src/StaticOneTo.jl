@@ -1,12 +1,22 @@
 """
+    StaticOneTo{N} <: StaticSequence{N}
     StaticOneTo(N)
 
-A lazy and statically sized analogue of `Base.OneTo(N)`.
+Analogue of `Base.OneTo(N)` for the integers `1:N` that stores `N` as a type
+parameter.
 
-This iterator can only store the integers from 1 to `N`, so its
-`output_type_for_promotion` is `NoOutputType()`. An efficient method is provided
-for `unrolled_take`, but no other unrolled functions can use `StaticOneTo`s as
-output types.
+The items are known during compilation, so unrolled functions pass constant
+indices to their callables. Unrolled functions return `Tuple`s for a
+`StaticOneTo`, except [`unrolled_take`](@ref), which returns a `StaticOneTo`.
+
+# Examples
+```julia
+r = StaticOneTo(4)
+unrolled_take(r, Val(2)) # StaticOneTo{2}()
+unrolled_map(abs2, r)    # (1, 4, 9, 16)
+```
+
+See also [`StaticSequence`](@ref), [`StaticBitVector`](@ref).
 """
 struct StaticOneTo{N} <: StaticSequence{N} end
 @inline StaticOneTo(N) = StaticOneTo{N}()

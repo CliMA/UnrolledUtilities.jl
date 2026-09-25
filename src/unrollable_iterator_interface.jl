@@ -1,9 +1,12 @@
 """
     generic_getindex(itr, n)
 
-Identical to `getindex(itr, n)`, but with the added ability to handle lazy
-iterator types defined in the standard library, such as `Base.Generator` and
-`Iterators.Enumerate`.
+Return the `n`-th item of `itr`. Equivalent to `getindex(itr, n)`, with added
+methods for the lazy iterators `Base.Generator`, `Iterators.Reverse`,
+`Iterators.Enumerate`, and `Iterators.Zip`. Statically sized iterators that do
+not support `getindex` can add methods to this function instead.
+
+See also [`StaticSequence`](@ref), [`output_type_for_promotion`](@ref).
 """
 Base.@propagate_inbounds generic_getindex(itr, n) = getindex(itr, n)
 Base.@propagate_inbounds generic_getindex(itr::Base.Generator, n) =
@@ -30,10 +33,13 @@ Base.@propagate_inbounds generic_getindex(itr::Iterators.Zip, n) =
 """
     output_type_for_promotion(itr)
 
-The type of output that unrolled functions should try to generate for the input
-iterator `itr`, or a `ConditionalOutputType` if the output type depends on the
-type of items that need to be stored in it, or `NoOutputType()` if `itr` is a
-lazy iterator without any associated output type. Defaults to `Tuple`.
+Return the type of container that unrolled functions construct for the input
+`itr`: a `Type`, a [`ConditionalOutputType`](@ref) when the container type
+depends on the item type, or [`NoOutputType()`](@ref) when `itr` has no
+container type of its own. Defaults to `Tuple`, and lazy iterators from `Base`
+forward to the iterators they wrap.
+
+See also [`output_promote_rule`](@ref), [`constructor_from_tuple`](@ref).
 """
 @inline output_type_for_promotion(_) = Tuple
 @inline output_type_for_promotion(::NamedTuple{names}) where {names} =
@@ -50,25 +56,27 @@ lazy iterator without any associated output type. Defaults to `Tuple`.
 """
     AmbiguousOutputType
 
-The result of `output_type_for_promotion` for iterators that do not have
-well-defined output types.
+Abstract supertype for the results of [`output_type_for_promotion`](@ref) that
+are not `Type`s: [`NoOutputType`](@ref) and [`ConditionalOutputType`](@ref).
 """
 abstract type AmbiguousOutputType end
 
 """
     NoOutputType()
 
-The `AmbiguousOutputType` of lazy iterators.
+The [`AmbiguousOutputType`](@ref) of iterators with no container type of their
+own, such as [`StaticOneTo`](@ref). It is promoted to any other output type,
+and it becomes `Tuple` on its own.
 """
 struct NoOutputType <: AmbiguousOutputType end
 
 """
     ConditionalOutputType(allowed_item_type, output_type, [fallback_type])
 
-An `AmbiguousOutputType` that can have one of two possible values. If the
-promoted item type of the output is a subtype of `allowed_item_type`, the output
-will have the type `output_type`; otherwise, it will have the type
-`fallback_type`, which is set to `Tuple` by default.
+An [`AmbiguousOutputType`](@ref) that resolves to `output_type` when the item
+type of the output is a subtype of `allowed_item_type`, and to `fallback_type`
+(`Tuple` by default) otherwise. [`StaticBitVector`](@ref) uses it to fall back
+to `Tuple` for items that are not `Bool`s.
 """
 struct ConditionalOutputType{I, O, O′} <: AmbiguousOutputType end
 @inline ConditionalOutputType(
@@ -87,15 +95,14 @@ struct ConditionalOutputType{I, O, O′} <: AmbiguousOutputType end
 """
     output_promote_rule(output_type1, output_type2)
 
-The type of output that should be generated when two iterators do not have the
-same `output_type_for_promotion`, or `Union{}` if no custom promotion rule is
-defined for this direction. Only one method of `output_promote_rule` needs to be
-defined for any pair of output types; if both directions return `Union{}`,
-`output_promote_result` falls back to `Tuple`.
+Return the output type for iterators whose [`output_type_for_promotion`](@ref)s
+are `output_type1` and `output_type2`, or `Union{}` when the pair has no rule.
+Only one direction needs a method; when both directions return `Union{}`, the
+output type is `Tuple`.
 
-By default, all types take precedence over `NoOutputType()`, and the conditional
-part of any `ConditionalOutputType` takes precedence over an unconditional type
-(so that only the `fallback_type` of any conditional type gets promoted).
+By default, every type takes precedence over [`NoOutputType()`](@ref), and the
+conditional part of a [`ConditionalOutputType`](@ref) is kept while its fallback
+type is promoted.
 """
 @inline output_promote_rule(_, _) = Union{}
 @inline output_promote_rule(::Type{O}, ::Type{O}) where {O} = O
@@ -165,16 +172,17 @@ end
 """
     constructor_from_tuple(output_type)
 
-A function that can be used to efficiently construct an output of type
-`output_type` from a `Tuple`, or `identity` if such an output should not be
-constructed from a `Tuple`. Defaults to `identity`, which also handles the case
-where `output_type` is already `Tuple`. The `output_type` here is guaranteed to
-be a `Type`, rather than a `ConditionalOutputType` or `NoOutputType`.
+Return a function that constructs a container of type `output_type` from a
+`Tuple` of items. Defaults to `identity`, which suits `Tuple`s and containers
+that wrap them, such as `SVector`s. For `NamedTuple` types, the function
+constructs a `NamedTuple` when the number of items matches the number of field
+names, and it returns the `Tuple` otherwise.
 
-Many statically sized iterators (e.g., `SVector`s) are essentially wrappers for
-`Tuple`s, and their constructors for `Tuple`s can be reduced to no-ops.
-`NamedTuple` types construct a `NamedTuple` when the tuple length matches the
-number of field names and fall back to `Tuple` otherwise.
+Container types that cannot be constructed from a `Tuple` efficiently can add
+methods to the `*_into` functions listed in the
+[Developer Guide](@ref "How to Use the Interface") instead.
+
+See also [`empty_output`](@ref).
 """
 @inline constructor_from_tuple(::Type) = identity
 @inline constructor_from_tuple(
@@ -188,8 +196,9 @@ number of field names and fall back to `Tuple` otherwise.
 """
     empty_output(output_type)
 
-An empty output of type `output_type`. Defaults to applying the
-`constructor_from_tuple` for the given type to an empty `Tuple`.
+Return an empty container of type `output_type`. Defaults to
+`constructor_from_tuple(output_type)(())`, and returns `(;)` for `NamedTuple`
+types.
 """
 @inline empty_output(output_type) = constructor_from_tuple(output_type)(())
 @inline empty_output(::Type{<:NamedTuple}) = (;)

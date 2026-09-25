@@ -11,10 +11,10 @@ nested_itr_of_depth_3 = (((1,), (2,)), ((3,), (4,)));
 
 # When to Use UnrolledUtilities
 
-The functions and types exported by this package tend to perform better than
-their counterparts from `Base` and `Base.Iterators` in the scenarios listed
-below. Additional examples and more precise measurements can be found in the
-automatically generated [tables of benchmarks](comparison_tables.md).
+The functions and types exported by this package perform better than their
+counterparts from `Base` and `Base.Iterators` in the scenarios listed below. The
+[Comparison Tables](comparison_tables.md) give more examples and measurements,
+and the [Cookbook](cookbook.md) shows how to apply the functions in each case.
 
 ##### Outline:
 
@@ -46,8 +46,7 @@ Depth = 2:3
   Test.@inferred unrolled_first_11(Tuple(1:14));
   ```
 
-- For benchmarks that indicate performance improvements when using unrolled
-  functions with long iterators, see [Isolated Unrolled Functions](@ref)
+- Benchmarks: [Isolated Unrolled Functions](@ref).
 
 ### Iterators with elements of different types
 
@@ -109,9 +108,9 @@ Depth = 2:3
       case, `Int64`), this ensures that `unrolled_add_lengths` has no
       intermediate type instabilities.
       
-      In other words, `unrolled_applyat` combines multiple methods for `length`
-      and `getindex` into a single method, replacing the inefficient method
-      table lookup that switches between them with a simpler switch instruction.
+      `unrolled_applyat` thus combines multiple methods for `length` and
+      `getindex` into a single method, and it replaces the method table lookup
+      that switches between them with a switch instruction.
 
   !!! tip "Tip"
       ##### *When should `getindex` be replaced with `unrolled_applyat`?*
@@ -131,9 +130,7 @@ Depth = 2:3
       instabilities, something like the switch instruction in `unrolled_applyat`
       is *required* in order to parallelize over nonuniform iterators on GPUs.
 
-- For benchmarks that indicate performance improvements when using unrolled
-  functions with nonuniform iterators, see [Isolated Unrolled Functions](@ref)
-  and [Nested Unrolled Functions](@ref)
+- Benchmarks: [Isolated Unrolled Functions](@ref) and [Nested Unrolled Functions](@ref).
 
 ### Reductions with intermediate values of different types
 
@@ -147,8 +144,7 @@ Depth = 2:3
   Test.@inferred unrolled_reduce(tuple, Tuple(1:33));
   ```
 
-- For benchmarks that indicate performance improvements when using unrolled
-  functions with nonuniform reductions, see [Isolated Unrolled Functions](@ref)
+- Benchmarks: [Isolated Unrolled Functions](@ref).
 
 ### Functions with recursion during compilation
 
@@ -211,22 +207,17 @@ Depth = 2:3
       replace it with a function whose limit has been disabled (such as an
       analogous function from `UnrolledUtilities`).
 
-- For benchmarks that indicate performance improvements when using unrolled
-  functions with recursive operations, see [Recursive Unrolled Functions](@ref)
+- Benchmarks: [Recursive Unrolled Functions](@ref).
 
 ## When to Use `StaticOneTo` and `StaticBitVector`
 
 ### Iterators of `Int`s from 1 to `N`
 
-```@docs
-StaticOneTo
-```
-
 If an iterator only contains the integers from 1 to `N ≥ 0`, it is possible to
 provide the compiler with the values in the iterator in addition to their types
-by using a `StaticOneTo`, as opposed to a `Tuple` or something similar. This
-can allow the compiler to fully optimize out code that depends on those values,
-essentially moving the code's execution from run time to compilation time:
+by using a [`StaticOneTo`](@ref) in place of a `Tuple`. The compiler can then
+optimize out code that depends on those values, moving the code's execution
+from run time to compilation time:
 
 ```@repl inference_test
 @code_llvm debuginfo=:none mapreduce(abs2, +, (1, 2, 3))
@@ -241,8 +232,7 @@ but for most non-trivial operations it is necessary to use unrolled functions:
 @code_llvm debuginfo=:none unrolled_mapreduce(log, +, StaticOneTo(3))
 ```
 
-For benchmarks that indicate performance improvements when using `StaticOneTo`s,
-see [Very Long Iterators](@ref).
+Benchmarks: [Very Long Iterators](@ref).
 
 !!! note "Note"
     ##### *Can the compiler infer iterator values in other scenarios?*
@@ -255,17 +245,13 @@ see [Very Long Iterators](@ref).
 
 ### Long iterators of `Bool`s that get modified across loop iterations
 
-```@docs
-StaticBitVector
-```
-
 Loops in Julia often allocate memory when a value larger than 32 bytes in size
 is modified across loop iterations (regardless of whether the loops are unrolled
 or not). Since `Bool`s are represented by bytes, this limits certain types of
 loops to modifying [bitmasks](https://en.wikipedia.org/wiki/Mask_(computing)) of
-no more than 32 `Bool`s in order to avoid allocations. Unlike an iterator of
-`Bool`s, though, a `StaticBitVector` stores 8 bits in every byte, which makes it
-possible to modify up to 256 bits at a time in loops without any allocations:
+no more than 32 `Bool`s in order to avoid allocations. A
+[`StaticBitVector`](@ref) stores 8 bits in every byte, which makes it possible
+to modify up to 256 bits at a time in loops without any allocations:
 
 ```@repl inference_test
 random_bit_flips(itr) = reduce(
@@ -285,6 +271,4 @@ As with `StaticOneTo`s, standard library functions can occasionally optimize
 `StaticBitVector`s as well as unrolled functions, but most complex use cases
 require unrolled functions.
 
-For benchmarks that indicate performance improvements when using long
-`StaticBitVector`s that get modified across loop iterations, see
-[Nested Unrolled Closures](@ref).
+Benchmarks: [Nested Unrolled Closures](@ref).
