@@ -112,6 +112,14 @@ end
     @test @inferred(split_val(v)) == Val((((1,), (1,), (4,)), ((2, 3), (2, 3))))
     @test @inferred(take_val(v)) == Val(((1,), (2, 3)))
     @test @inferred(drop_val(v)) == Val(((1,), (2, 3), (4,)))
+
+    sum_val(::Val{items}) where {items} = Val(unrolled_sum(items))
+    cumsum_val(::Val{items}) where {items} = Val(unrolled_cumsum(items))
+    cumprod_val(::Val{items}) where {items} = Val(unrolled_cumprod(items))
+    small_items = Val((true, Int8(100), UInt8(200)))
+    @test @inferred(sum_val(small_items)) == Val(301)
+    @test @inferred(cumsum_val(small_items)) == Val((1, 101, 301))
+    @test @inferred(cumprod_val(Val(Int8.((100, 100))))) == Val((100, 10000))
 end
 
 @testset "StaticBitVector correctness and promotion" begin
@@ -211,6 +219,26 @@ end
     @test unrolled_sum(x -> 2x, (1, 2, 3); init = 10) === 22
     @test unrolled_prod((1, 2, 3); init = 10) === 60
     @test unrolled_prod(x -> 2x, (1, 2, 3); init = 10) === 480
+
+    # Sums and products widen Bools and small integers, as in Base.
+    @test unrolled_sum(Int8.((100, 100))) === sum(Int8.((100, 100))) === 200
+    @test unrolled_cumsum((true, true, true)) ===
+          cumsum((true, true, true)) ===
+          (1, 2, 3)
+    @test unrolled_sum((true,)) === 1
+    @test unrolled_sum((Int8(100),); init = Int8(100)) === 200
+    @test unrolled_sum(UInt8.((200, 200))) === UInt(400)
+    @test unrolled_prod(Int8.((100, 100))) === 10000
+    @test unrolled_prod((Int8(1),)) === 1
+    @test unrolled_prod((true, true)) === true
+    @test unrolled_cumsum((Int8(1),)) === (1,)
+    @test unrolled_cumprod(Int8.((100, 100))) === (100, 10000)
+    @test unrolled_cumsum(StaticBitVector{3}(true)) === (1, 2, 3)
+    @test unrolled_cumsum(StaticBitVector{1}(true)) === (1,)
+    @test unrolled_cumprod(StaticBitVector{3}(true)) ===
+          StaticBitVector{3}(true)
+    @test unrolled_cumprod(StaticBitVector{1}(true)) ===
+          StaticBitVector{1}(true)
 
     counter_u = OddCallCounter(0)
     @test unrolled_unique(counter_u, (1, 2, 3, 4, 5)) == (1, 2)

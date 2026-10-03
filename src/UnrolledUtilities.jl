@@ -94,8 +94,17 @@ struct NoInit end
 )
 @inline empty_reduction_value(init) = init
 
+# Analogue of the non-public Base.reduce_first for the first item of a reduction
+# without init. Sums widen a first Bool or small integer to an Int or UInt, and
+# products widen a first small integer, as in Base.sum and Base.prod.
+@inline reduction_first(op::O, item) where {O} = item
+@inline reduction_first(
+    op::Union{typeof(Base.add_sum), typeof(Base.mul_prod)},
+    item,
+) = Base.reduce_first(op, item)
+
 Base.@propagate_inbounds first_reduction_value(op::O, itr, ::NoInit) where {O} =
-    generic_getindex(itr, 1)
+    reduction_first(op, generic_getindex(itr, 1))
 Base.@propagate_inbounds first_reduction_value(op::O, itr, init) where {O} =
     op(init, generic_getindex(itr, 1))
 
@@ -104,7 +113,7 @@ Base.@propagate_inbounds first_mapreduce_value(
     op::O,
     itr,
     ::NoInit,
-) where {F, O} = f(generic_getindex(itr, 1))
+) where {F, O} = reduction_first(op, f(generic_getindex(itr, 1)))
 Base.@propagate_inbounds first_mapreduce_value(
     f::F,
     op::O,
@@ -854,12 +863,14 @@ end
 
 Return the sum of the items of `itr` (or of the values of `f(item)`), as an
 analogue of `sum`. The sum starts from `init` when it is given; an empty `itr`
-sums to `init`, or to `0` without it.
+sums to `init`, or to `0` without it. As in `sum`, `Bool`s and signed (unsigned)
+integers narrower than `Int` are added as `Int`s (`UInt`s).
 
 # Examples
 ```julia
 unrolled_sum((1, 2, 3, 4))              # 10
 unrolled_sum(abs2, (1, 2, 3); init = 5) # 19
+unrolled_sum(Int8.((100, 100)))         # 200
 ```
 
 See also [`unrolled_prod`](@ref), [`unrolled_cumsum`](@ref),
@@ -871,7 +882,7 @@ Base.@propagate_inbounds unrolled_sum(f::F, itr; init = NoInit()) where {F} =
     _unrolled_sum(f, itr, init)
 Base.@propagate_inbounds _unrolled_sum(f::F, itr, init) where {F} =
     isempty(itr) ? (init isa NoInit ? 0 : init) :
-    fused_mapreduce(f, +, itr, init)
+    fused_mapreduce(f, Base.add_sum, itr, init)
 
 """
     unrolled_prod(itr; [init])
@@ -879,7 +890,8 @@ Base.@propagate_inbounds _unrolled_sum(f::F, itr, init) where {F} =
 
 Return the product of the items of `itr` (or of the values of `f(item)`), as an
 analogue of `prod`. The product starts from `init` when it is given; an empty
-`itr` multiplies to `init`, or to `1` without it.
+`itr` multiplies to `init`, or to `1` without it. As in `prod`, signed
+(unsigned) integers narrower than `Int` are multiplied as `Int`s (`UInt`s).
 
 # Examples
 ```julia
@@ -895,34 +907,39 @@ Base.@propagate_inbounds unrolled_prod(f::F, itr; init = NoInit()) where {F} =
     _unrolled_prod(f, itr, init)
 Base.@propagate_inbounds _unrolled_prod(f::F, itr, init) where {F} =
     isempty(itr) ? (init isa NoInit ? 1 : init) :
-    fused_mapreduce(f, *, itr, init)
+    fused_mapreduce(f, Base.mul_prod, itr, init)
 
 """
     unrolled_cumsum(itr)
     unrolled_cumsum(f, itr)
 
 Return the running sums of the items of `itr` (or of the values of `f(item)`),
-as an analogue of `cumsum`.
+as an analogue of `cumsum`. As in `cumsum`, `Bool`s and signed (unsigned)
+integers narrower than `Int` are added as `Int`s (`UInt`s), so the running sums
+of a `StaticBitVector` are a `Tuple` of `Int`s.
 
 # Examples
 ```julia
 unrolled_cumsum((a = 1, b = 2, c = 3)) # (a = 1, b = 3, c = 6)
 unrolled_cumsum(abs, (-1, -2, 3))      # (1, 3, 6)
+unrolled_cumsum((true, true, true))    # (1, 2, 3)
 ```
 
 See also [`unrolled_cumprod`](@ref), [`unrolled_accumulate`](@ref).
 """
 Base.@propagate_inbounds unrolled_cumsum(itr) =
-    unrolled_accumulate(+, itr, NoInit())
+    unrolled_accumulate(Base.add_sum, itr, NoInit())
 Base.@propagate_inbounds unrolled_cumsum(f::F, itr) where {F} =
-    unrolled_accumulate(+, Iterators.map(f, itr), NoInit())
+    unrolled_accumulate(Base.add_sum, Iterators.map(f, itr), NoInit())
 
 """
     unrolled_cumprod(itr)
     unrolled_cumprod(f, itr)
 
 Return the running products of the items of `itr` (or of the values of
-`f(item)`), as an analogue of `cumprod`.
+`f(item)`), as an analogue of `cumprod`. As in `cumprod`, signed (unsigned)
+integers narrower than `Int` are multiplied as `Int`s (`UInt`s), and the running
+products of a `StaticBitVector` are a `StaticBitVector`.
 
 # Examples
 ```julia
@@ -933,9 +950,9 @@ unrolled_cumprod(abs, (-2, -3, 4)) # (2, 6, 24)
 See also [`unrolled_cumsum`](@ref), [`unrolled_accumulate`](@ref).
 """
 Base.@propagate_inbounds unrolled_cumprod(itr) =
-    unrolled_accumulate(*, itr, NoInit())
+    unrolled_accumulate(Base.mul_prod, itr, NoInit())
 Base.@propagate_inbounds unrolled_cumprod(f::F, itr) where {F} =
-    unrolled_accumulate(*, Iterators.map(f, itr), NoInit())
+    unrolled_accumulate(Base.mul_prod, Iterators.map(f, itr), NoInit())
 
 """
     unrolled_count(itr)

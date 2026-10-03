@@ -285,8 +285,8 @@ Base.@propagate_inbounds function unrolled_accumulate_into(
             if index <= N
                 item = generic_getindex(itr, index)
                 new_value =
-                    index == 1 && prev_value isa NoInit ? item :
-                    op(prev_value, item)
+                    index == 1 && prev_value isa NoInit ?
+                    reduction_first(op, item) : op(prev_value, item)
                 (int | U(new_value::Bool) << bit_offset, new_value)
             else
                 (int, prev_value)

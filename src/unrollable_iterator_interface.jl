@@ -193,7 +193,9 @@ end
     init,
 ) where {I, O, O′, F}
     item_type = eltype_for_promotion(itr)
-    acc_type = init isa NoInit ? item_type : typeof(init)
+    acc_type =
+        init isa NoInit ?
+        Base.promote_op(reduction_first, typeof(op), item_type) : typeof(init)
     out_type =
         init isa NoInit && length(itr) <= 1 ? acc_type :
         Union{acc_type, Base.promote_op(op, acc_type, item_type)}
