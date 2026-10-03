@@ -206,10 +206,13 @@ end
     init,
 ) where {I, O, O′, F}
     item_type = eltype_for_promotion(itr)
-    acc_type = init isa NoInit ? item_type : typeof(init)
+    first_type =
+        init isa NoInit ?
+        Base.promote_op(reduction_first, typeof(op), item_type) :
+        Base.promote_op(op, typeof(init), item_type)
     out_type =
-        init isa NoInit && length(itr) <= 1 ? acc_type :
-        Union{acc_type, Base.promote_op(op, acc_type, item_type)}
+        length(itr) <= 1 ? first_type :
+        Union{first_type, Base.promote_op(op, first_type, item_type)}
     return out_type <: I ? O : O′
 end
 @inline unrolled_accumulate_output_type(op::F, itr, init) where {F} =
