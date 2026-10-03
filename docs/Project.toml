@@ -8,4 +8,4 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 UnrolledUtilities = "0fe1646c-419e-43be-ac14-22321958931b"
 
 [compat]
-PrettyTables = "2"
+PrettyTables = "3"

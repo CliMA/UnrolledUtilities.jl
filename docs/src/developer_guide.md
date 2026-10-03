@@ -24,12 +24,11 @@ unrolled_foreach(f, itr) = _unrolled_foreach(Val(length(itr)), f, itr)
 
 Julia's compiler can only pass up to 32 values through function arguments
 without allocating heap memory, so recursive unrolling is not type-stable for
-iterators with lengths greater than 32. However, automatically generating
-functions often requires more time and memory resources during compilation than
-writing hard-coded functions. Recursive inlining adds overhead to compilation
-as well, but this is typically smaller than the overhead of generated functions
-for short iterators. To avoid sacrificing latency by using generated functions,
-several hard-coded methods can be added to the manually unrolled implementation:
+iterators with lengths greater than 32. Generated functions have no such limit,
+but they take more time and memory to compile than hard-coded functions, and
+for short iterators this cost exceeds that of recursive inlining. Hard-coded
+methods for the shortest iterators keep the latency of the manually unrolled
+implementation low:
 
 ```julia
 _unrolled_foreach(::Val{0}, f, itr) = nothing
@@ -66,8 +65,11 @@ ConditionalOutputType
 output_promote_rule
 constructor_from_tuple
 empty_output
-StaticSequence
 ```
+
+Iterator types with a compile-time constant length can also subtype
+[`StaticSequence`](@ref), which provides `length`, `getindex`, and `iterate` in
+terms of `generic_getindex`.
 
 ## How to Use the Interface
 
@@ -98,8 +100,10 @@ these steps:
             - `unrolled_append_into(U, itr1, itr2)`
             - `unrolled_take_into(U, itr, val_N)`
             - `unrolled_drop_into(U, itr, val_N)`
+            - `unrolled_setindex_into(U, itr, item, val_N)`
+            - `unrolled_insert_into(U, itr, item, val_N)`
             - `unrolled_map_into(U, f, itr)`
-            - `unrolled_accumulate_into(U, op, itr, init, transform)`
+            - `unrolled_accumulate_into(U, op, itr, init)`
 
 !!! note "Note"
     When a relevant method for the interface is not defined, unrolled functions

@@ -1,12 +1,20 @@
 name = "UnrolledUtilities"
 uuid = "0fe1646c-419e-43be-ac14-22321958931b"
 authors = ["CliMA Contributors <clima-software@caltech.edu>"]
-version = "0.1.11"
+version = "0.1.12"
 
 [compat]
-julia = "1.10"
-PrettyTables = "2"
+Aqua = "0.8"
+CUDA = "5, 6"
+GPUCompiler = "0.26, 0.27, 1, 2"
+InteractiveUtils = "1"
+JET = "0.9, 0.10"
+OrderedCollections = "1"
+PrettyTables = "3"
+SafeTestsets = "0.1"
 StaticArrays = "1"
+Test = "1"
+julia = "1.10"
 
 [weakdeps]
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"

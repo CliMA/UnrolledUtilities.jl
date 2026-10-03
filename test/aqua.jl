@@ -9,10 +9,5 @@ import Aqua, UnrolledUtilities
     Aqua.test_ambiguities(UnrolledUtilities; recursive = true)
 end
 
-# Run the other Aqua tests, which are already wrapped in @testset blocks. Do not
-# check for compat entries of dependencies that are only used for testing.
-Aqua.test_all(
-    UnrolledUtilities;
-    ambiguities = false,
-    deps_compat = (; check_extras = false),
-)
+# Run the other Aqua tests, which are already wrapped in @testset blocks.
+Aqua.test_all(UnrolledUtilities; ambiguities = false)
