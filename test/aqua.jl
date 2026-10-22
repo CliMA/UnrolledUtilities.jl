@@ -9,8 +9,10 @@ import Aqua, UnrolledUtilities
     Aqua.test_ambiguities(UnrolledUtilities; recursive = true)
 end
 
-# Run the other Aqua tests, which are already wrapped in @testset blocks. Do not
-# check for compat entries of dependencies that are only used for testing.
+# Run the other Aqua tests, which are already wrapped in @testset blocks. Only
+# PrettyTables, whose version 3 API the tests use, has a compat entry among the
+# test dependencies, so that developers can test with newer versions of the
+# others.
 Aqua.test_all(
     UnrolledUtilities;
     ambiguities = false,
