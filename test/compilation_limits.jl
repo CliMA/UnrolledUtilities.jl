@@ -246,6 +246,54 @@ end
     # so there is no need to test them here with simpler StaticBitVector inputs.
 end
 
+@testset "baseline: wide NamedTuple inputs" begin
+    # 60 items, which exceeds the 32-item splat limit. Functions that change the
+    # number of items throw for NamedTuples, so they are not tested here.
+    WIDE = (floats(20)..., vals(20)..., ints(20)...)
+    WIDE_NT = NamedTuple{ntuple(i -> Symbol(:x, i), 60)}(ntuple(Float32, 60))
+    WIDE_HETEROGENOUS_NT = NamedTuple{keys(WIDE_NT)}(WIDE)
+    for nt in (WIDE_NT, WIDE_HETEROGENOUS_NT)
+        test_unrolled(unrolled_append, nt, WIDE)
+        test_unrolled(unrolled_prepend, nt, WIDE)
+        test_unrolled(unrolled_take, nt, Val(30))
+        test_unrolled(unrolled_drop, nt, Val(30))
+        test_unrolled(unrolled_setindex, nt, 1, Val(30))
+        test_unrolled(unrolled_map, runtime_number, nt)
+        test_unrolled(unrolled_map, runtime_combination, nt, nt)
+        test_unrolled(unrolled_any, runtime_bool, nt)
+        test_unrolled(unrolled_all, runtime_bool, nt)
+        test_unrolled(unrolled_foreach, runtime_number, nt)
+        test_unrolled(unrolled_reduce, runtime_combination, nt)
+        test_unrolled(
+            unrolled_mapreduce,
+            runtime_number,
+            runtime_combination,
+            nt,
+        )
+        test_unrolled(unrolled_accumulate, runtime_combination, nt)
+        test_unrolled(unrolled_applyat, runtime_int, 30, nt)
+        test_unrolled(unrolled_in, 1, nt)
+        test_unrolled(unrolled_allunique, runtime_number, nt)
+        test_unrolled(unrolled_allequal, runtime_number, nt)
+        test_unrolled(unrolled_sum, runtime_number, nt)
+        test_unrolled(unrolled_cumsum, runtime_number, nt)
+        test_unrolled(unrolled_count, runtime_bool, nt)
+        test_unrolled(unrolled_extrema, runtime_number, nt)
+        test_unrolled(unrolled_findmax, runtime_int, nt)
+        test_unrolled(unrolled_argmax, constant_number, nt)
+        test_unrolled(unrolled_findfirst, constant_bool, nt)
+        test_unrolled(unrolled_argfirst, constant_bool, nt)
+        # Returns(true) stores true in a field, so the compiler cannot fold it
+        # like _ -> true. Without folding, the result is not inferrable (see
+        # Compilation Limit 2), even for Tuples.
+        test_unrolled(unrolled_filter, _ -> true, nt)
+        test_unrolled(unrolled_flatten, (nt,))
+        test_unrolled(unrolled_flatmap, runtime_tuple, nt)
+        test_unrolled(unrolled_product, nt, vals(3))
+        test_unrolled(unrolled_partition, nt, Val(3))
+    end
+end
+
 combining(f) = (T, x) -> promote_type(T, f(x))
 
 nested_reduce(::Val{T}) where {T} = T
