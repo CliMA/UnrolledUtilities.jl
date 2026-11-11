@@ -184,6 +184,10 @@ Base.@propagate_inbounds unrolled_map_into_tuple(f::F, itr) where {F} =
 Base.@propagate_inbounds unrolled_map_into(output_type, f::F, itr) where {F} =
     constructor_from_tuple(output_type)(unrolled_map_into_tuple(f, itr))
 
+# Base's Tuple() and values(n) splats and hits the max_tuple_splat limit of 32 
+Base.@propagate_inbounds named_tuple_values(nt::NamedTuple) =
+    unrolled_map_into_tuple(identity, nt)
+
 # Avoid the max_tuple_splat limit of 32 items from base/compiler/types.jl.
 Base.@propagate_inbounds unrolled_push_into(output_type, itr, item) =
     constructor_from_tuple(output_type)(
@@ -459,12 +463,14 @@ Base.@propagate_inbounds unrolled_map(
 Base.@propagate_inbounds unrolled_map(
     f::F,
     nt::NamedTuple{names},
-) where {F, names} = NamedTuple{names}(unrolled_map(f, Tuple(nt)))
+) where {F, names} = NamedTuple{names}(unrolled_map(f, named_tuple_values(nt)))
 Base.@propagate_inbounds unrolled_map(
     f::F,
     nt1::NamedTuple{names},
     nt2::NamedTuple{names},
-) where {F, names} = NamedTuple{names}(unrolled_map(f, Tuple(nt1), Tuple(nt2)))
+) where {F, names} = NamedTuple{names}(
+    unrolled_map(f, named_tuple_values(nt1), named_tuple_values(nt2)),
+)
 Base.@propagate_inbounds unrolled_map(f::F, r::StaticOneTo) where {F} =
     unrolled_map_into_tuple(f, r)
 
@@ -1489,7 +1495,7 @@ Base.@propagate_inbounds _unrolled_slice(
     ::Val{len},
 ) where {names, offset, len} =
     NamedTuple{_unrolled_slice(names, Val(offset), Val(len))}(
-        _unrolled_slice(Tuple(nt), Val(offset), Val(len)),
+        _unrolled_slice(named_tuple_values(nt), Val(offset), Val(len)),
     )
 
 """
