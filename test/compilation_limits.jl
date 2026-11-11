@@ -308,7 +308,15 @@ runtime_sum(n, x) = unrolled_sum(Base.Fix1(*, x), 1:n)
     # The flag raises inline_cost_threshold to MAX_INLINE_COST, so the compiler
     # expects to inline unrolled_sum and can propagate the literal value of n.
     test_gpu_compiles(x -> runtime_sum(9, x), 3; T, always_inline = true)
-    test_gpu_throws_alloc(x -> runtime_sum(9, x), 3; always_inline = true)
+    # Without T, the output array is a CuDeviceArray{Any}. Since CUDACore 6.5,
+    # storing into it fails at a dynamic call to alignment, which cannot compute
+    # the size of Any, before the compiler gets to boxing the result.
+    test_gpu_throws(
+        ("gpu_gc_pool_alloc", "alignment"),
+        x -> runtime_sum(9, x),
+        3;
+        always_inline = true,
+    )
     test_gpu_throws_alloc(x -> runtime_sum(9, x), 3; T, always_inline = false)
     test_gpu_throws("box", x -> runtime_sum(9, x), 3; T, always_inline = false)
 end
