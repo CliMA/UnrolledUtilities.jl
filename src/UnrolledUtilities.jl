@@ -774,13 +774,11 @@ Base.@propagate_inbounds mapped_values(f::F, itr) where {F} =
     Base.issingletontype(F) ? Iterators.map(f, itr) :
     unrolled_map_into_tuple(f, itr)
 
-Base.@propagate_inbounds function is_first_occurrence(values, n)
-    value_n = generic_getindex(values, n)
-    return unrolled_all(static_range(values)) do m
+Base.@propagate_inbounds is_first_occurrence(values, n) =
+    unrolled_all(static_range(values)) do m
         Base.@_propagate_inbounds_meta
-        m >= n || generic_getindex(values, m) !== value_n
+        m >= n || generic_getindex(values, m) !== generic_getindex(values, n)
     end
-end
 
 """
     unrolled_unique(itr)

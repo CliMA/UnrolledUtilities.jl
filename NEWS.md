@@ -4,6 +4,11 @@ UnrolledUtilities.jl Release Notes
 main
 ----
 
+v0.1.13
+-------
+- [#40](https://github.com/CliMA/UnrolledUtilities.jl/pull/40) Fixed type inference for `NamedTuple` inputs with more than 32 items.
+- [#40](https://github.com/CliMA/UnrolledUtilities.jl/pull/40) Fix `unrolled_unique` and `unrolled_allunique` on wide inputs in julia v1.12+
+
 v0.1.12
 -------
 - [#37](https://github.com/CliMA/UnrolledUtilities.jl/pull/37) Fixed `unrolled_insert` on `StaticBitVector`s, which inserted bits one position too late, `StaticBitVector(true)` and `unrolled_take`, which left unused trailing bits set, the constructor from a `Tuple` of words, which accepted any number of words, and `unrolled_drop`, which left stale words that corrupted later `unrolled_push` and `unrolled_append` calls.
