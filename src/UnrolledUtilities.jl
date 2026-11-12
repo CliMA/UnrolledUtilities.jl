@@ -439,7 +439,7 @@ Base.@propagate_inbounds unrolled_map(f::F, itrs...) where {F} =
 # Fast paths for common container types and small tuples, which skip the lazy
 # wrappers and the output type computation of the generic methods.
 Base.@propagate_inbounds unrolled_map(f::F, itr::Tuple) where {F} =
-    unrolled_map_into_tuple(f, itr)
+    _unrolled_map(Val(length(itr)), f, itr)
 Base.@propagate_inbounds unrolled_map(f::F, ::Tuple{}, ::Tuple{}) where {F} = ()
 Base.@propagate_inbounds unrolled_map(
     f::F,
@@ -459,7 +459,7 @@ Base.@propagate_inbounds unrolled_map(
 Base.@propagate_inbounds unrolled_map(
     f::F,
     itr::Iterators.Zip{<:Tuple{Vararg{Tuple}}},
-) where {F} = unrolled_map_into_tuple(f, itr)
+) where {F} = _unrolled_map(Val(length(itr)), f, itr)
 Base.@propagate_inbounds unrolled_map(
     f::F,
     nt::NamedTuple{names},
@@ -472,7 +472,7 @@ Base.@propagate_inbounds unrolled_map(
     unrolled_map(f, named_tuple_values(nt1), named_tuple_values(nt2)),
 )
 Base.@propagate_inbounds unrolled_map(f::F, r::StaticOneTo) where {F} =
-    unrolled_map_into_tuple(f, r)
+    _unrolled_map(Val(length(r)), f, r)
 
 """
     unrolled_any(itr)
@@ -587,7 +587,7 @@ unrolled_reduce(+, (1, 2, 3); init = 10) # 16
 See also [`unrolled_mapreduce`](@ref), [`unrolled_accumulate`](@ref).
 """
 Base.@propagate_inbounds unrolled_reduce(op::O, itr, init) where {O} =
-    _unrolled_mapreduce(identity, op, itr, init)
+    _unrolled_mapreduce(Val(length(itr)), identity, op, itr, init)
 Base.@propagate_inbounds unrolled_reduce(
     op::O,
     itr;
@@ -615,7 +615,7 @@ Base.@propagate_inbounds unrolled_mapreduce(
     op::O,
     itr;
     init = NoInit(),
-) where {F, O} = _unrolled_mapreduce(f, op, itr, init)
+) where {F, O} = _unrolled_mapreduce(Val(length(itr)), f, op, itr, init)
 Base.@propagate_inbounds unrolled_mapreduce(
     f::F,
     op::O,
@@ -673,7 +673,7 @@ Base.@propagate_inbounds unrolled_accumulate(
     op::O,
     itr::Tuple,
     init,
-) where {O} = unrolled_accumulate_into_tuple(op, itr, init)
+) where {O} = _unrolled_accumulate(Val(length(itr)), op, itr, init)
 Base.@propagate_inbounds unrolled_accumulate(op::O, itr, init) where {O} =
     unrolled_accumulate_into(
         unrolled_accumulate_output_type(op, itr, init),
