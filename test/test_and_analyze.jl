@@ -180,7 +180,9 @@ function comparison_string(
     number2 = to_number(value2)
     ratio = number1 / number2
     ratio_str =
-        if ratio < 2 && inv(ratio) < 2 || number1 < epsilon && number2 < epsilon
+        if isnan(ratio) || # A ratio of 0 / 0 means both numbers are 0.
+           ratio < 2 && inv(ratio) < 2 ||
+           number1 < epsilon && number2 < epsilon
             "similar"
         elseif ratio >= 2
             floored_ratio = ratio == Inf ? Inf : floor(Int, ratio)
