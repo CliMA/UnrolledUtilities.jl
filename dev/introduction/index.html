@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><meta name="referrer" content="no-referrer"/><title>Introduction · UnrolledUtilities.jl</title><meta name="title" content="Introduction · UnrolledUtilities.jl"/><meta property="og:title" content="Introduction · UnrolledUtilities.jl"/><meta property="twitter:title" content="Introduction · UnrolledUtilities.jl"/><meta name="description" content="Documentation for UnrolledUtilities.jl."/><meta property="og:description" content="Documentation for UnrolledUtilities.jl."/><meta property="twitter:description" content="Documentation for UnrolledUtilities.jl."/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.63.2/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><a class="docs-logo" href="../"><img class="docs-light-only" src="../assets/logo.svg" alt="UnrolledUtilities.jl logo"/><img class="docs-dark-only" src="../assets/logo-dark.svg" alt="UnrolledUtilities.jl logo"/></a><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li class="is-active"><a class="tocitem" href>Introduction</a><ul class="internal"><li><a class="tocitem" href="#Motivation-for-Loop-Unrolling"><span>Motivation for Loop Unrolling</span></a></li><li><a class="tocitem" href="#What-Does-Loop-Unrolling-Do"><span>What Does Loop Unrolling Do</span></a></li><li><a class="tocitem" href="#Downsides-of-Loop-Unrolling"><span>Downsides of Loop Unrolling</span></a></li></ul></li><li><a class="tocitem" href="../user_guide/">User Guide</a></li><li><a class="tocitem" href="../cookbook/">Cookbook</a></li><li><a class="tocitem" href="../limits/">Compilation Limits</a></li><li><a class="tocitem" href="../api/">API Reference</a></li><li><a class="tocitem" href="../developer_guide/">Developer Guide</a></li><li><a class="tocitem" href="../comparison_tables/">Comparison Tables</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Introduction</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Introduction</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/CliMA/UnrolledUtilities.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/CliMA/UnrolledUtilities.jl/blob/main/docs/src/introduction.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><style>
+summary {
+  background-color: #3c5dcd;
+  border-radius: 5px;
+  color: white;
+  cursor: pointer;
+  list-style-position: outside;
+  list-style-type: "⬇";
+}
+summary::after {
+  content: "Click to show long output";
+  margin-left: 15px;
+}
+details[open] summary {
+  list-style-type: "⬆";
+}
+details[open] summary::after {
+  content: none;
+}
+</style><h2 id="Motivation-for-Loop-Unrolling"><a class="docs-heading-anchor" href="#Motivation-for-Loop-Unrolling">Motivation for Loop Unrolling</a><a id="Motivation-for-Loop-Unrolling-1"></a><a class="docs-heading-anchor-permalink" href="#Motivation-for-Loop-Unrolling" title="Permalink"></a></h2><p>The iteration utilities in <code>Base</code> and <code>Base.Iterators</code> perform well for most uses, but low-level optimization often runs into <a href="https://docs.julialang.org/en/v1/manual/faq/#man-type-stability">type instabilities</a> in unexpected places. Here is a simple example:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; Test.@inferred map(one, Tuple(1:31));</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; Test.@inferred map(one, Tuple(1:32));</code><code class="nohighlight hljs ansi" style="display:block;">ERROR: return type NTuple{32, Int64} does not match inferred return type Tuple</code></pre><p>This type instability is present in all <code>map</code>s over iterators with lengths greater than 31, regardless of whether they are statically sized. As with most type instabilities in Julia, this leads to memory allocations every time <code>map</code> is called with sufficiently long iterators.</p><p><a href="https://docs.julialang.org/en/v1/stdlib/Test/#Test.@inferred"><code>Test.@inferred</code></a> checks whether the return type of a call is stable. The generated <a href="https://llvm.org/docs/LangRef.html">LLVM</a> code shows how different the two calls above are:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; @code_llvm debuginfo=:none map(one, Tuple(1:31))</code><code class="nohighlight hljs ansi" style="display:block;">; Function Signature: map(typeof(Base.one), NTuple{31, Int64})
+define void @julia_map_191155(ptr noalias nocapture noundef nonnull sret([31 x i64]) align 8 dereferenceable(248) %sret_return, ptr nocapture noundef nonnull readonly align 8 dereferenceable(248) %&quot;t::Tuple&quot;) local_unnamed_addr #0 {
+top:
+  call void @llvm.memcpy.p0.p0.i64(ptr noundef nonnull align 8 dereferenceable(248) %sret_return, ptr noundef nonnull align 8 dereferenceable(248) @&quot;_j_const#1&quot;, i64 248, i1 false)
+  ret void
+}</code></pre><details><summary><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; @code_llvm debuginfo=:none map(one, Tuple(1:32))</code></pre></summary><pre><code class="nohighlight hljs ansi" style="display:block;">; Function Signature: map(typeof(Base.one), NTuple{32, Int64})
+define nonnull ptr @julia_map_191162(ptr nocapture noundef nonnull readonly align 8 dereferenceable(256) %&quot;t::Tuple&quot;) local_unnamed_addr #0 {
+top:
+  %jlcallframe1 = alloca [3 x ptr], align 8
+  %gcframe2 = alloca [3 x ptr], align 16
+  call void @llvm.memset.p0.i64(ptr align 16 %gcframe2, i8 0, i64 24, i1 true)
+  %thread_ptr = call ptr asm &quot;movq %fs:0, $0&quot;, &quot;=r&quot;() #12
+  %tls_ppgcstack = getelementptr inbounds i8, ptr %thread_ptr, i64 -8
+  %tls_pgcstack = load ptr, ptr %tls_ppgcstack, align 8
+  store i64 4, ptr %gcframe2, align 8
+  %frame.prev = getelementptr inbounds nuw i8, ptr %gcframe2, i64 8
+  %task.gcstack = load ptr, ptr %tls_pgcstack, align 8
+  store ptr %task.gcstack, ptr %frame.prev, align 8
+  store ptr %gcframe2, ptr %tls_pgcstack, align 8
+  %ptls_field = getelementptr inbounds nuw i8, ptr %tls_pgcstack, i64 16
+  %ptls_load = load ptr, ptr %ptls_field, align 8
+  %&quot;Memory{Any}[]&quot; = call noalias nonnull align 8 dereferenceable(288) ptr @ijl_gc_small_alloc(ptr %ptls_load, i32 960, i32 288, i64 137974634406032) #9
+  %&quot;Memory{Any}[].tag_addr&quot; = getelementptr inbounds i8, ptr %&quot;Memory{Any}[]&quot;, i64 -8
+  store atomic i64 137974634406032, ptr %&quot;Memory{Any}[].tag_addr&quot; unordered, align 8
+  %memory_ptr = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 8
+  %memory_data = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 16
+  store ptr %memory_data, ptr %memory_ptr, align 8
+  store i64 32, ptr %&quot;Memory{Any}[]&quot;, align 8
+  call void @llvm.memset.p0.i64(ptr noundef nonnull align 8 dereferenceable(256) %memory_data, i8 0, i64 256, i1 false)
+  %gc_slot_addr_0 = getelementptr inbounds nuw i8, ptr %gcframe2, i64 16
+  store ptr %&quot;Memory{Any}[]&quot;, ptr %gc_slot_addr_0, align 8
+  %ptls_load23 = load ptr, ptr %ptls_field, align 8
+  %&quot;new::Array&quot; = call noalias nonnull align 8 dereferenceable(32) ptr @ijl_gc_small_alloc(ptr %ptls_load23, i32 408, i32 32, i64 137974707969648) #9
+  %&quot;new::Array.tag_addr&quot; = getelementptr inbounds i8, ptr %&quot;new::Array&quot;, i64 -8
+  store atomic i64 137974707969648, ptr %&quot;new::Array.tag_addr&quot; unordered, align 8
+  %0 = getelementptr inbounds nuw i8, ptr %&quot;new::Array&quot;, i64 8
+  store ptr %memory_data, ptr %&quot;new::Array&quot;, align 8
+  store ptr %&quot;Memory{Any}[]&quot;, ptr %0, align 8
+  %&quot;new::Array.size_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;new::Array&quot;, i64 16
+  store i64 32, ptr %&quot;new::Array.size_ptr&quot;, align 8
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %memory_data release, align 8
+  %gep.1 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 24
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.1 release, align 8
+  %gep.2 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 32
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.2 release, align 8
+  %gep.3 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 40
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.3 release, align 8
+  %gep.4 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 48
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.4 release, align 8
+  %gep.5 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 56
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.5 release, align 8
+  %gep.6 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 64
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.6 release, align 8
+  %gep.7 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 72
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.7 release, align 8
+  %gep.8 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 80
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.8 release, align 8
+  %gep.9 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 88
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.9 release, align 8
+  %gep.10 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 96
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.10 release, align 8
+  %gep.11 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 104
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.11 release, align 8
+  %gep.12 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 112
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.12 release, align 8
+  %gep.13 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 120
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.13 release, align 8
+  %gep.14 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 128
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.14 release, align 8
+  %gep.15 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 136
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.15 release, align 8
+  %gep.16 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 144
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.16 release, align 8
+  %gep.17 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 152
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.17 release, align 8
+  %gep.18 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 160
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.18 release, align 8
+  %gep.19 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 168
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.19 release, align 8
+  %gep.20 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 176
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.20 release, align 8
+  %gep.21 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 184
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.21 release, align 8
+  %gep.22 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 192
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.22 release, align 8
+  %gep.23 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 200
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.23 release, align 8
+  %gep.24 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 208
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.24 release, align 8
+  %gep.25 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 216
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.25 release, align 8
+  %gep.26 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 224
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.26 release, align 8
+  %gep.27 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 232
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.27 release, align 8
+  %gep.28 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 240
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.28 release, align 8
+  %gep.29 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 248
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.29 release, align 8
+  %gep.30 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 256
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.30 release, align 8
+  %gep.31 = getelementptr inbounds nuw i8, ptr %&quot;Memory{Any}[]&quot;, i64 264
+  store atomic ptr @&quot;jl_global#191167.jit&quot;, ptr %gep.31 release, align 8
+  store ptr %&quot;new::Array&quot;, ptr %gc_slot_addr_0, align 8
+  store ptr @&quot;jl_global#191168.jit&quot;, ptr %jlcallframe1, align 8
+  %1 = getelementptr inbounds nuw i8, ptr %jlcallframe1, i64 8
+  store ptr @&quot;jl_global#191169.jit&quot;, ptr %1, align 8
+  %2 = getelementptr inbounds nuw i8, ptr %jlcallframe1, i64 16
+  store ptr %&quot;new::Array&quot;, ptr %2, align 8
+  %jl_f__apply_iterate_ret = call nonnull ptr @jl_f__apply_iterate(ptr null, ptr nonnull %jlcallframe1, i32 3)
+  %frame.prev26 = load ptr, ptr %frame.prev, align 8
+  store ptr %frame.prev26, ptr %tls_pgcstack, align 8
+  ret ptr %jl_f__apply_iterate_ret
+}</code></pre></details><br><p>The type instability (and all of the resulting LLVM code complexity) in the second function call can be eliminated by replacing <code>map</code> with <code>unrolled_map</code>:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; Test.@inferred unrolled_map(one, Tuple(1:32));</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; @code_llvm debuginfo=:none unrolled_map(one, Tuple(1:32))</code><code class="nohighlight hljs ansi" style="display:block;">; Function Signature: unrolled_map(typeof(Base.one), NTuple{32, Int64})
+define void @julia_unrolled_map_191171(ptr noalias nocapture noundef nonnull sret([32 x i64]) align 8 dereferenceable(256) %sret_return, ptr nocapture noundef nonnull readonly align 8 dereferenceable(256) %&quot;itr::Tuple&quot;) local_unnamed_addr #0 {
+top:
+  call void @llvm.memcpy.p0.p0.i64(ptr noundef nonnull align 8 dereferenceable(256) %sret_return, ptr noundef nonnull align 8 dereferenceable(256) @&quot;_j_const#1&quot;, i64 256, i1 false)
+  ret void
+}</code></pre><p>The minimum iterator length for type instability is not always 32; for instance, it can also be 14:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; first_11(itr) = itr[1:11]</code><code class="nohighlight hljs ansi" style="display:block;">first_11 (generic function with 1 method)</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; Test.@inferred first_11(Tuple(1:13));</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; Test.@inferred first_11(Tuple(1:14));</code><code class="nohighlight hljs ansi" style="display:block;">ERROR: return type NTuple{11, Int64} does not match inferred return type Tuple{Vararg{Int64}}</code></pre><div class="admonition is-info" id="Note-7981578b179a1ddd"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-7981578b179a1ddd" title="Permalink"></a></header><div class="admonition-body"><h5><em>Why is the function definition needed in this example?</em></h5><p>On the first line of the example above, <code>[1:11]</code> is enclosed in a function so that it does not get evaluated in global scope. This turns the range <code>1:11</code> into a <code>Core.Const</code>, which the compiler can propagate into the call to <code>getindex</code> in order to infer the length of the result:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; @code_warntype first_11(Tuple(1:13))</code><code class="nohighlight hljs ansi" style="display:block;">MethodInstance for Main.first_11(::NTuple{13, Int64})
+  from first_11(itr) @ Main string:2
+Arguments
+  #self#::Core.Const(Main.first_11)
+  itr::NTuple{13, Int64}
+Body::NTuple{11, Int64}
+1 ─ %1 = Main.:(:)::Core.Const(Colon())
+│   %2 = (%1)(1, 11)::Core.Const(1:11)
+│   %3 = Base.getindex(itr, %2)::NTuple{11, Int64}
+└──      return %3</code></pre><p>In contrast, running <code>Test.@inferred Tuple(1:13)[1:11]</code> would amount to checking whether the compiler can compute the result type of <code>getindex</code> given only the argument types <code>NTuple{13, Int64}</code> and <code>UnitRange{Int64}</code>, which it cannot do:</p><details><summary><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; @code_warntype Tuple(1:13)[1:11]</code></pre></summary><pre><code class="nohighlight hljs ansi" style="display:block;">MethodInstance for getindex(::NTuple{13, Int64}, ::UnitRange{Int64})
+  from getindex(t::Tuple, r::AbstractUnitRange) @ Base range.jl:439
+Arguments
+  #self#::Core.Const(getindex)
+  t::NTuple{13, Int64}
+  r::UnitRange{Int64}
+Locals
+  #32::Base.var&quot;#getindex##0#getindex##1&quot;{UnitRange{Int64}}
+  @_5::UNION{NOTHING, TUPLE{INT64, INT64}}
+  @_6::Int64
+  ri::Int64
+Body::TUPLE
+1 ──        nothing
+│           nothing
+│           Core.NewvarNode(:(#32))
+│    %4   = Base.require_one_based_indexing::Core.Const(Base.require_one_based_indexing)
+│           (%4)(r)
+│    %6   = Base.:&lt;=::Core.Const(&lt;=)
+│    %7   = Base.length::Core.Const(length)
+│    %8   = (%7)(r)::Int64
+│    %9   = (%6)(%8, 10)::Bool
+└───        goto #4 if not %9
+2 ── %11  = Base.ntuple::Core.Const(ntuple)
+│    %12  = Base.:(var&quot;#getindex##0#getindex##1&quot;)::Core.Const(Base.var&quot;#getindex##0#getindex##1&quot;)
+│    %13  = Core._typeof_captured_variable(r)::Core.Const(UnitRange{Int64})
+│    %14  = Core.apply_type(%12, %13)::Core.Const(Base.var&quot;#getindex##0#getindex##1&quot;{UnitRange{Int64}})
+│           (#32 = %new(%14, t, r))
+│    %16  = #32::Core.PartialStruct(Base.var&quot;#getindex##0#getindex##1&quot;{UnitRange{Int64}}, Union{Nothing, Bool}[0, 0], Any[NTuple{13, Int64}, UnitRange{Int64}])
+│    %17  = Base.length::Core.Const(length)
+│    %18  = (%17)(r)::Int64
+│    %19  = (%11)(%16, %18)::TUPLE
+└───        return %19
+3 ──        Core.Const(:(goto %93))
+4 ┄─ %22  = Base.:(==)::Core.Const(==)
+│    %23  = Base.first::Core.Const(first)
+│    %24  = (%23)(r)::Int64
+│    %25  = (%22)(%24, 1)::Bool
+└───        goto #15 if not %25
+5 ── %27  = Base.:(==)::Core.Const(==)
+│    %28  = Base.last::Core.Const(last)
+│    %29  = (%28)(r)::Int64
+│    %30  = Base.length::Core.Const(length)
+│    %31  = (%30)(t)::Core.Const(13)
+│    %32  = (%27)(%29, %31)::Bool
+└───        goto #8 if not %32
+6 ── %34  = t::NTuple{13, Int64}
+└───        return %34
+7 ──        Core.Const(:(goto %37))
+8 ┄─ %37  = Base.:(==)::Core.Const(==)
+│    %38  = Base.last::Core.Const(last)
+│    %39  = (%38)(r)::Int64
+│    %40  = Base.:-::Core.Const(-)
+│    %41  = Base.length::Core.Const(length)
+│    %42  = (%41)(t)::Core.Const(13)
+│    %43  = (%40)(%42, 1)::Core.Const(12)
+│    %44  = (%37)(%39, %43)::Bool
+└───        goto #11 if not %44
+9 ── %46  = Base.front::Core.Const(Base.front)
+│    %47  = (%46)(t)::NTuple{12, Int64}
+└───        return %47
+10 ─        Core.Const(:(goto %50))
+11 ┄ %50  = Base.:(==)::Core.Const(==)
+│    %51  = Base.last::Core.Const(last)
+│    %52  = (%51)(r)::Int64
+│    %53  = Base.:-::Core.Const(-)
+│    %54  = Base.length::Core.Const(length)
+│    %55  = (%54)(t)::Core.Const(13)
+│    %56  = (%53)(%55, 2)::Core.Const(11)
+│    %57  = (%50)(%52, %56)::Bool
+└───        goto #14 if not %57
+12 ─ %59  = Base.front::Core.Const(Base.front)
+│    %60  = Base.front::Core.Const(Base.front)
+│    %61  = (%60)(t)::NTuple{12, Int64}
+│    %62  = (%59)(%61)::NTuple{11, Int64}
+└───        return %62
+13 ─        Core.Const(:(goto %65))
+14 ┄        goto #22
+15 ─ %66  = Base.:(==)::Core.Const(==)
+│    %67  = Base.last::Core.Const(last)
+│    %68  = (%67)(r)::Int64
+│    %69  = Base.length::Core.Const(length)
+│    %70  = (%69)(t)::Core.Const(13)
+│    %71  = (%66)(%68, %70)::Bool
+└───        goto #22 if not %71
+16 ─ %73  = Base.:(==)::Core.Const(==)
+│    %74  = Base.first::Core.Const(first)
+│    %75  = (%74)(r)::Int64
+│    %76  = (%73)(%75, 2)::Bool
+└───        goto #19 if not %76
+17 ─ %78  = Base.tail::Core.Const(Base.tail)
+│    %79  = (%78)(t)::NTuple{12, Int64}
+└───        return %79
+18 ─        Core.Const(:(goto %82))
+19 ┄ %82  = Base.:(==)::Core.Const(==)
+│    %83  = Base.first::Core.Const(first)
+│    %84  = (%83)(r)::Int64
+│    %85  = (%82)(%84, 3)::Bool
+└───        goto #22 if not %85
+20 ─ %87  = Base.tail::Core.Const(Base.tail)
+│    %88  = Base.tail::Core.Const(Base.tail)
+│    %89  = (%88)(t)::NTuple{12, Int64}
+│    %90  = (%87)(%89)::NTuple{11, Int64}
+└───        return %90
+21 ─        Core.Const(:(goto %93))
+22 ┄ %93  = r::UnitRange{Int64}
+│    %94  = Base.IteratorSize(%93)::Core.Const(Base.HasShape{1}())
+│    %95  = (%94 isa Base.SizeUnknown)::Core.Const(false)
+│    %96  = Base.eltype::Core.Const(eltype)
+│    %97  = (%96)(t)::Core.Const(Int64)
+│    %98  = Base._array_for(%97, %93, %94)::Vector{Int64}
+│    %99  = Base.LinearIndices(%98)::LinearIndices{1, Tuple{Base.OneTo{Int64}}}
+│           (@_6 = Base.first(%99))
+│           (@_5 = Base.iterate(%93))
+│    %102 = @_5::UNION{NOTHING, TUPLE{INT64, INT64}}
+│    %103 = (%102 === nothing)::Bool
+│    %104 = Base.not_int(%103)::Bool
+└───        goto #27 if not %104
+23 ┄ %106 = @_5::Tuple{Int64, Int64}
+│           (ri = Core.getfield(%106, 1))
+│    %108 = Core.getfield(%106, 2)::Int64
+│    %109 = ri::Int64
+│    %110 = Base.getindex(t, %109)::Int64
+│           nothing
+└───        goto #25 if not %95
+24 ─        Core.Const(:(Base.push!(%98, %110)))
+└───        Core.Const(:(goto %117))
+25 ┄ %115 = @_6::Int64
+│           Base.setindex!(%98, %110, %115)
+│           nothing
+│    %118 = @_6::Int64
+│           (@_6 = Base.add_int(%118, 1))
+│           (@_5 = Base.iterate(%93, %108))
+│    %121 = @_5::UNION{NOTHING, TUPLE{INT64, INT64}}
+│    %122 = (%121 === nothing)::Bool
+│    %123 = Base.not_int(%122)::Bool
+└───        goto #27 if not %123
+26 ─        goto #23
+27 ┄ %126 = Core._apply_iterate(Base.iterate, Core.tuple, %98)::TUPLE{VARARG{INT64}}
+└───        return %126</code></pre></details><br></div></div><p>Although <code>itr[1:10]</code> is always inferrable when <code>itr</code> is a <code>Tuple</code>, <code>itr[1:11]</code> has a type instability whenever <code>itr</code> contains more than 13 items. More generally, <code>itr[1:N]</code> seems to be unstable for all <code>N &gt; 10</code> whenever <code>itr</code> contains more than <code>N + 2</code> items. This type instability can be fixed by replacing <code>getindex</code> with <code>unrolled_take</code>:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; unrolled_first_11(itr) = unrolled_take(itr, Val(11))</code><code class="nohighlight hljs ansi" style="display:block;">unrolled_first_11 (generic function with 1 method)</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; Test.@inferred unrolled_first_11(Tuple(1:14));</code></pre><p>Even when the final result of a function is inferred, there can be intermediate steps in the function with type instabilities that trigger allocations:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; function add_lengths(itr)
+           length_sum = 0
+           for n in 1:length(itr)
+               length_sum += length(itr[n])
+           end
+       end</code><code class="nohighlight hljs ansi" style="display:block;">add_lengths (generic function with 1 method)</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; Test.@inferred add_lengths(((1, 2), (1, 2, 3)))</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; @allocated add_lengths(((1, 2), (1, 2, 3)))</code><code class="nohighlight hljs ansi" style="display:block;">64</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; @code_warntype add_lengths(((1, 2), (1, 2, 3)))</code><code class="nohighlight hljs ansi" style="display:block;">MethodInstance for Main.add_lengths(::Tuple{Tuple{Int64, Int64}, Tuple{Int64, Int64, Int64}})
+  from add_lengths(itr) @ Main REPL[1]:1
+Arguments
+  #self#::Core.Const(Main.add_lengths)
+  itr::Tuple{Tuple{Int64, Int64}, Tuple{Int64, Int64, Int64}}
+Locals
+  @_3::UNION{NOTHING, TUPLE{INT64, INT64}}
+  length_sum::Int64
+  n::Int64
+Body::Nothing
+1 ─       (length_sum = 0)
+│   %2  = Main.:(:)::Core.Const(Colon())
+│   %3  = Main.length::Core.Const(length)
+│   %4  = (%3)(itr)::Core.Const(2)
+│   %5  = (%2)(1, %4)::Core.Const(1:2)
+│         (@_3 = Base.iterate(%5))
+│   %7  = @_3::Core.Const((1, 1))
+│   %8  = (%7 === nothing)::Core.Const(false)
+│   %9  = Base.not_int(%8)::Core.Const(true)
+└──       goto #4 if not %9
+2 ┄ %11 = @_3::Tuple{Int64, Int64}
+│         (n = Core.getfield(%11, 1))
+│   %13 = Core.getfield(%11, 2)::Int64
+│   %14 = Main.:+::Core.Const(+)
+│   %15 = length_sum::Int64
+│   %16 = Main.length::Core.Const(length)
+│   %17 = n::Int64
+│   %18 = Base.getindex(itr, %17)::UNION{TUPLE{INT64, INT64}, TUPLE{INT64, INT64, INT64}}
+│   %19 = (%16)(%18)::Int64
+│         (length_sum = (%14)(%15, %19))
+│         (@_3 = Base.iterate(%5, %13))
+│   %22 = @_3::UNION{NOTHING, TUPLE{INT64, INT64}}
+│   %23 = (%22 === nothing)::Bool
+│   %24 = Base.not_int(%23)::Bool
+└──       goto #4 if not %24
+3 ─       goto #2
+4 ┄       return nothing</code></pre><p>The key detail in the output of <code>@code_warntype</code> is that the call to <code>getindex</code> is not inferred, because it can return either a <code>Tuple</code> of length 2 or a <code>Tuple</code> of length 3. This type instability can be fixed by replacing <code>getindex</code> with <code>unrolled_applyat</code>:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; function unrolled_add_lengths(itr)
+           length_sum = 0
+           for n in 1:length(itr)
+               length_sum += unrolled_applyat(length, n, itr)
+           end
+       end</code><code class="nohighlight hljs ansi" style="display:block;">unrolled_add_lengths (generic function with 1 method)</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; @allocated unrolled_add_lengths(((1, 2), (1, 2, 3)))</code><code class="nohighlight hljs ansi" style="display:block;">0</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; @code_warntype unrolled_add_lengths(((1, 2), (1, 2, 3)))</code><code class="nohighlight hljs ansi" style="display:block;">MethodInstance for Main.unrolled_add_lengths(::Tuple{Tuple{Int64, Int64}, Tuple{Int64, Int64, Int64}})
+  from unrolled_add_lengths(itr) @ Main REPL[1]:1
+Arguments
+  #self#::Core.Const(Main.unrolled_add_lengths)
+  itr::Tuple{Tuple{Int64, Int64}, Tuple{Int64, Int64, Int64}}
+Locals
+  @_3::UNION{NOTHING, TUPLE{INT64, INT64}}
+  length_sum::Int64
+  n::Int64
+Body::Nothing
+1 ─       (length_sum = 0)
+│   %2  = Main.:(:)::Core.Const(Colon())
+│   %3  = Main.length::Core.Const(length)
+│   %4  = (%3)(itr)::Core.Const(2)
+│   %5  = (%2)(1, %4)::Core.Const(1:2)
+│         (@_3 = Base.iterate(%5))
+│   %7  = @_3::Core.Const((1, 1))
+│   %8  = (%7 === nothing)::Core.Const(false)
+│   %9  = Base.not_int(%8)::Core.Const(true)
+└──       goto #4 if not %9
+2 ┄ %11 = @_3::Tuple{Int64, Int64}
+│         (n = Core.getfield(%11, 1))
+│   %13 = Core.getfield(%11, 2)::Int64
+│   %14 = Main.:+::Core.Const(+)
+│   %15 = length_sum::Int64
+│   %16 = Main.unrolled_applyat::Core.Const(UnrolledUtilities.unrolled_applyat)
+│   %17 = Main.length::Core.Const(length)
+│   %18 = n::Int64
+│   %19 = (%16)(%17, %18, itr)::Int64
+│         (length_sum = (%14)(%15, %19))
+│         (@_3 = Base.iterate(%5, %13))
+│   %22 = @_3::UNION{NOTHING, TUPLE{INT64, INT64}}
+│   %23 = (%22 === nothing)::Bool
+│   %24 = Base.not_int(%23)::Bool
+└──       goto #4 if not %24
+3 ─       goto #2
+4 ┄       return nothing</code></pre><p>For a detailed breakdown of when the tools provided by this package can improve performance, see the <a href="../user_guide/">User Guide</a>.</p><h2 id="What-Does-Loop-Unrolling-Do"><a class="docs-heading-anchor" href="#What-Does-Loop-Unrolling-Do">What Does Loop Unrolling Do</a><a id="What-Does-Loop-Unrolling-Do-1"></a><a class="docs-heading-anchor-permalink" href="#What-Does-Loop-Unrolling-Do" title="Permalink"></a></h2><p>When a loop over <code>N</code> indices is unrolled, it gets compiled into <code>N</code> lines of LLVM code, where each line has a constant (<code>Core.Const</code>) index. For example, an unrolled loop that prints every integer from 1 to 33 is compiled into the following:</p><details><summary><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; @code_llvm debuginfo=:none unrolled_foreach(println, Tuple(1:33))</code></pre></summary><pre><code class="nohighlight hljs ansi" style="display:block;">; Function Signature: unrolled_foreach(typeof(Base.println), NTuple{33, Int64})
+define void @julia_unrolled_foreach_193022(ptr nocapture noundef nonnull readonly align 8 dereferenceable(264) %&quot;itr::Tuple&quot;) local_unnamed_addr #0 {
+top:
+  %&quot;itr::Tuple.unbox&quot; = load i64, ptr %&quot;itr::Tuple&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple.unbox&quot;)
+  %&quot;itr::Tuple[2]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 8
+  %&quot;itr::Tuple[2]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[2]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[2]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[3]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 16
+  %&quot;itr::Tuple[3]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[3]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[3]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[4]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 24
+  %&quot;itr::Tuple[4]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[4]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[4]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[5]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 32
+  %&quot;itr::Tuple[5]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[5]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[5]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[6]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 40
+  %&quot;itr::Tuple[6]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[6]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[6]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[7]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 48
+  %&quot;itr::Tuple[7]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[7]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[7]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[8]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 56
+  %&quot;itr::Tuple[8]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[8]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[8]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[9]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 64
+  %&quot;itr::Tuple[9]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[9]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[9]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[10]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 72
+  %&quot;itr::Tuple[10]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[10]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[10]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[11]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 80
+  %&quot;itr::Tuple[11]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[11]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[11]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[12]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 88
+  %&quot;itr::Tuple[12]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[12]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[12]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[13]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 96
+  %&quot;itr::Tuple[13]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[13]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[13]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[14]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 104
+  %&quot;itr::Tuple[14]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[14]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[14]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[15]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 112
+  %&quot;itr::Tuple[15]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[15]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[15]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[16]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 120
+  %&quot;itr::Tuple[16]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[16]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[16]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[17]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 128
+  %&quot;itr::Tuple[17]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[17]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[17]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[18]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 136
+  %&quot;itr::Tuple[18]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[18]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[18]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[19]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 144
+  %&quot;itr::Tuple[19]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[19]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[19]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[20]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 152
+  %&quot;itr::Tuple[20]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[20]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[20]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[21]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 160
+  %&quot;itr::Tuple[21]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[21]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[21]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[22]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 168
+  %&quot;itr::Tuple[22]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[22]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[22]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[23]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 176
+  %&quot;itr::Tuple[23]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[23]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[23]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[24]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 184
+  %&quot;itr::Tuple[24]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[24]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[24]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[25]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 192
+  %&quot;itr::Tuple[25]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[25]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[25]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[26]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 200
+  %&quot;itr::Tuple[26]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[26]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[26]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[27]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 208
+  %&quot;itr::Tuple[27]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[27]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[27]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[28]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 216
+  %&quot;itr::Tuple[28]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[28]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[28]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[29]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 224
+  %&quot;itr::Tuple[29]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[29]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[29]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[30]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 232
+  %&quot;itr::Tuple[30]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[30]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[30]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[31]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 240
+  %&quot;itr::Tuple[31]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[31]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[31]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[32]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 248
+  %&quot;itr::Tuple[32]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[32]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[32]_ptr.unbox&quot;)
+  %&quot;itr::Tuple[33]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 256
+  %&quot;itr::Tuple[33]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[33]_ptr&quot;, align 8
+  call void @j_println_193024(i64 signext %&quot;itr::Tuple[33]_ptr.unbox&quot;)
+  ret void
+}</code></pre></details><br><p>This LLVM code consists of 33 <code>getelementptr</code> instructions (each of which extracts a value from a <code>Tuple</code> at a particular index), 33 <code>load</code> instructions, and 33 <code>call</code> instructions (each of which switches execution to <code>println</code>). Every <code>getelementptr</code> instruction has a constant index between 0 and 32; in more complex examples where the <code>call</code> instructions get inlined, this constant index can be propagated into the LLVM code of the function being called. On the other hand, here is the LLVM code for the non-unrolled version of this loop:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; @code_llvm debuginfo=:none foreach(println, Tuple(1:33))</code><code class="nohighlight hljs ansi" style="display:block;">; Function Signature: foreach(typeof(Base.println), NTuple{33, Int64})
+define void @julia_foreach_193162(ptr nocapture noundef nonnull readonly align 8 dereferenceable(264) %&quot;itr::Tuple&quot;) local_unnamed_addr #0 {
+top:
+  %&quot;itr::Tuple.unbox&quot; = load i64, ptr %&quot;itr::Tuple&quot;, align 8
+  call void @j_println_193164(i64 signext %&quot;itr::Tuple.unbox&quot;)
+  %&quot;itr::Tuple[2]_ptr&quot; = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 8
+  %&quot;itr::Tuple[2]_ptr.unbox&quot; = load i64, ptr %&quot;itr::Tuple[2]_ptr&quot;, align 8
+  call void @j_println_193164(i64 signext %&quot;itr::Tuple[2]_ptr.unbox&quot;)
+  %0 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 16
+  %.unbox = load i64, ptr %0, align 8
+  call void @j_println_193164(i64 signext %.unbox)
+  %1 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 24
+  %.unbox.1 = load i64, ptr %1, align 8
+  call void @j_println_193164(i64 signext %.unbox.1)
+  %2 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 32
+  %.unbox.2 = load i64, ptr %2, align 8
+  call void @j_println_193164(i64 signext %.unbox.2)
+  %3 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 40
+  %.unbox.3 = load i64, ptr %3, align 8
+  call void @j_println_193164(i64 signext %.unbox.3)
+  %4 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 48
+  %.unbox.4 = load i64, ptr %4, align 8
+  call void @j_println_193164(i64 signext %.unbox.4)
+  %5 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 56
+  %.unbox.5 = load i64, ptr %5, align 8
+  call void @j_println_193164(i64 signext %.unbox.5)
+  %6 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 64
+  %.unbox.6 = load i64, ptr %6, align 8
+  call void @j_println_193164(i64 signext %.unbox.6)
+  %7 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 72
+  %.unbox.7 = load i64, ptr %7, align 8
+  call void @j_println_193164(i64 signext %.unbox.7)
+  %8 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 80
+  %.unbox.8 = load i64, ptr %8, align 8
+  call void @j_println_193164(i64 signext %.unbox.8)
+  %9 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 88
+  %.unbox.9 = load i64, ptr %9, align 8
+  call void @j_println_193164(i64 signext %.unbox.9)
+  %10 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 96
+  %.unbox.10 = load i64, ptr %10, align 8
+  call void @j_println_193164(i64 signext %.unbox.10)
+  %11 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 104
+  %.unbox.11 = load i64, ptr %11, align 8
+  call void @j_println_193164(i64 signext %.unbox.11)
+  %12 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 112
+  %.unbox.12 = load i64, ptr %12, align 8
+  call void @j_println_193164(i64 signext %.unbox.12)
+  %13 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 120
+  %.unbox.13 = load i64, ptr %13, align 8
+  call void @j_println_193164(i64 signext %.unbox.13)
+  %14 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 128
+  %.unbox.14 = load i64, ptr %14, align 8
+  call void @j_println_193164(i64 signext %.unbox.14)
+  %15 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 136
+  %.unbox.15 = load i64, ptr %15, align 8
+  call void @j_println_193164(i64 signext %.unbox.15)
+  %16 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 144
+  %.unbox.16 = load i64, ptr %16, align 8
+  call void @j_println_193164(i64 signext %.unbox.16)
+  %17 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 152
+  %.unbox.17 = load i64, ptr %17, align 8
+  call void @j_println_193164(i64 signext %.unbox.17)
+  %18 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 160
+  %.unbox.18 = load i64, ptr %18, align 8
+  call void @j_println_193164(i64 signext %.unbox.18)
+  %19 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 168
+  %.unbox.19 = load i64, ptr %19, align 8
+  call void @j_println_193164(i64 signext %.unbox.19)
+  %20 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 176
+  %.unbox.20 = load i64, ptr %20, align 8
+  call void @j_println_193164(i64 signext %.unbox.20)
+  %21 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 184
+  %.unbox.21 = load i64, ptr %21, align 8
+  call void @j_println_193164(i64 signext %.unbox.21)
+  %22 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 192
+  %.unbox.22 = load i64, ptr %22, align 8
+  call void @j_println_193164(i64 signext %.unbox.22)
+  %23 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 200
+  %.unbox.23 = load i64, ptr %23, align 8
+  call void @j_println_193164(i64 signext %.unbox.23)
+  %24 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 208
+  %.unbox.24 = load i64, ptr %24, align 8
+  call void @j_println_193164(i64 signext %.unbox.24)
+  %25 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 216
+  %.unbox.25 = load i64, ptr %25, align 8
+  call void @j_println_193164(i64 signext %.unbox.25)
+  %26 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 224
+  %.unbox.26 = load i64, ptr %26, align 8
+  call void @j_println_193164(i64 signext %.unbox.26)
+  %27 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 232
+  %.unbox.27 = load i64, ptr %27, align 8
+  call void @j_println_193164(i64 signext %.unbox.27)
+  %28 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 240
+  %.unbox.28 = load i64, ptr %28, align 8
+  call void @j_println_193164(i64 signext %.unbox.28)
+  %29 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 248
+  %.unbox.29 = load i64, ptr %29, align 8
+  call void @j_println_193164(i64 signext %.unbox.29)
+  %30 = getelementptr inbounds nuw i8, ptr %&quot;itr::Tuple&quot;, i64 256
+  %.unbox.30 = load i64, ptr %30, align 8
+  call void @j_println_193164(i64 signext %.unbox.30)
+  ret void
+}</code></pre><p>This LLVM code has a <code>load</code> instruction to get the first value and a <code>getelementptr</code> instruction with a non-constant integer index to get all other values. It also has conditional jump instructions for checking whether the last index has been reached after each <code>load</code> and <code>getelementptr</code> instruction.</p><h2 id="Downsides-of-Loop-Unrolling"><a class="docs-heading-anchor" href="#Downsides-of-Loop-Unrolling">Downsides of Loop Unrolling</a><a id="Downsides-of-Loop-Unrolling-1"></a><a class="docs-heading-anchor-permalink" href="#Downsides-of-Loop-Unrolling" title="Permalink"></a></h2><p>Loop unrolling has a cost: unrolled functions usually take longer to compile than their counterparts in the standard library. Much of the code written with the standard library runs only once or a few times, so compilation dominates its total execution time, and run-time savings make no practical difference there. Replacing standard library functions with unrolled functions in such code can increase total execution time:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; tup32 = ntuple(Returns((1, 2)), 32);</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; @elapsed map(first, tup32)</code><code class="nohighlight hljs ansi" style="display:block;">0.009047024</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; @elapsed unrolled_map(first, tup32)</code><code class="nohighlight hljs ansi" style="display:block;">0.011211602</code></pre><p>The increase in compilation time is usually no more than a factor of 5 for small iterators, but it grows as iterator length increases:</p><pre><code class="language-julia-repl hljs" style="display:block;">julia&gt; tup320 = ntuple(Returns((1, 2)), 320);</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; @elapsed map(first, tup320)</code><code class="nohighlight hljs ansi" style="display:block;">0.008810904</code><br/><code class="language-julia-repl hljs" style="display:block;">julia&gt; @elapsed unrolled_map(first, tup320)</code><code class="nohighlight hljs ansi" style="display:block;">0.29850261</code></pre><p>Loop unrolling can also theoretically increase the run time of a function in addition to its compilation time, since unrolled assembly code requires more space and takes longer to load than non-unrolled code. In practice, though, the constant propagation enabled by unrolling usually compensates for this slowdown.</p><p>Unrolled functions are worthwhile when type instabilities and allocations must be removed, as they must be for GPU kernels and for <a href="https://github.com/brenhinkeller/StaticTools.jl#limitations">static compilation</a>, and when run time matters more than compilation time. Standard library functions are the better choice when compilation time dominates.</p><p>It is usually a good idea to compare the performance of unrolled code against non-unrolled code before settling on a particular design. Many examples of such comparisons can be found in the <a href="../comparison_tables/">tables of benchmarks</a> that are automatically generated for this package.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../user_guide/">User Guide »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.20.0 on <span class="colophon-date" title="Friday 13 November 2026 18:54">Friday 13 November 2026</span>. Using Julia version 1.13.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
