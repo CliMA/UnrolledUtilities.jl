@@ -441,6 +441,15 @@ Base.@propagate_inbounds unrolled_map(f::F, itrs...) where {F} =
 # wrappers and the output type computation of the generic methods.
 Base.@propagate_inbounds unrolled_map(f::F, itr::Tuple) where {F} =
     _unrolled_map(Val(length(itr)), f, itr)
+Base.@propagate_inbounds unrolled_map(f::F, ::Tuple{}) where {F} = ()
+Base.@propagate_inbounds unrolled_map(f::F, itr::Tuple{Any}) where {F} =
+    (f(itr[1]),)
+Base.@propagate_inbounds unrolled_map(f::F, itr::Tuple{Any, Any}) where {F} =
+    (f(itr[1]), f(itr[2]))
+Base.@propagate_inbounds unrolled_map(
+    f::F,
+    itr::Tuple{Any, Any, Any},
+) where {F} = (f(itr[1]), f(itr[2]), f(itr[3]))
 Base.@propagate_inbounds unrolled_map(f::F, ::Tuple{}, ::Tuple{}) where {F} = ()
 Base.@propagate_inbounds unrolled_map(
     f::F,
