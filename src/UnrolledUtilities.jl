@@ -242,6 +242,7 @@ unrolled_append((1, 2), (3, 4), (5,)) # (1, 2, 3, 4, 5)
 See also [`unrolled_prepend`](@ref), [`unrolled_flatten`](@ref).
 """
 Base.@propagate_inbounds unrolled_append(itr1::Tuple, itr2::Tuple) =
+    length(itr1) <= 32 && length(itr2) <= 32 ? (itr1..., itr2...) :
     unrolled_append_into(Tuple, itr1, itr2)
 Base.@propagate_inbounds unrolled_append(itr1, itr2) =
     unrolled_append_into(promoted_output_type(itr1, itr2), itr1, itr2)
