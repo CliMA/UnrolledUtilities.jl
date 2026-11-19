@@ -4,6 +4,10 @@ UnrolledUtilities.jl Release Notes
 main
 ----
 
+v0.1.14
+-------
+- [#44](https://github.com/CliMA/UnrolledUtilities.jl/pull/44) Reduced compilation time of `unrolled_map` on a single `Tuple` with up to 3 items and of `unrolled_append` on two `Tuple`s with up to 32 items each.
+
 v0.1.13
 -------
 - [#40](https://github.com/CliMA/UnrolledUtilities.jl/pull/40) Fixed type inference for `NamedTuple` inputs with more than 32 items.
